@@ -296,12 +296,7 @@ export function GameClient({
                       <span className="text-red-400 font-mono font-bold text-xs">X/6</span>
                     )}
                     {p.status === "playing" && (
-                      <button
-                        onClick={() => nudgePlayer(roomId, p.userId)}
-                        className="text-xs text-yellow-500 hover:text-yellow-400 font-medium h-8 px-2 rounded-md hover:bg-yellow-500/10 transition-colors"
-                      >
-                        Nudge
-                      </button>
+                      <NudgeBtn roomId={roomId} targetUserId={p.userId} />
                     )}
                   </div>
                 ))}
@@ -406,6 +401,88 @@ export function GameClient({
           );
         })()}
       </div>
+
+      {/* Notification permission banner */}
+      <NotificationBanner />
+    </div>
+  );
+}
+
+function NudgeBtn({ roomId, targetUserId }: { roomId: string; targetUserId: string }) {
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+
+  const handleNudge = async () => {
+    setState("sending");
+    try {
+      await nudgePlayer(roomId, targetUserId);
+      setState("sent");
+      setTimeout(() => setState("idle"), 1500);
+    } catch {
+      setState("idle");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleNudge}
+      disabled={state !== "idle"}
+      className={`text-xs font-medium h-8 px-2 rounded-md transition-colors ${
+        state === "sent"
+          ? "text-green-500"
+          : "text-yellow-500 hover:text-yellow-400 hover:bg-yellow-500/10"
+      } disabled:opacity-60`}
+    >
+      {state === "sending" ? "..." : state === "sent" ? "Sent!" : "Nudge"}
+    </button>
+  );
+}
+
+function NotificationBanner() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "default") {
+      setShow(true);
+    }
+  }, []);
+
+  if (!show) return null;
+
+  const handleEnable = async () => {
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setShow(false);
+      // Re-trigger the push subscription
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+        });
+        const json = sub.toJSON();
+        const { subscribePush } = await import("@/actions/push");
+        await subscribePush({
+          endpoint: sub.endpoint,
+          keys: { p256dh: json.keys!.p256dh!, auth: json.keys!.auth! },
+        });
+      }
+    } else {
+      setShow(false);
+    }
+  };
+
+  return (
+    <div className="shrink-0 px-3 py-2 bg-yellow-500/10 border-t border-yellow-500/20 flex items-center justify-between gap-3">
+      <p className="text-xs text-yellow-400">
+        Enable notifications so others can nudge you
+      </p>
+      <button
+        onClick={handleEnable}
+        className="text-xs font-bold text-yellow-500 hover:text-yellow-400 shrink-0 h-8 px-3 rounded-md bg-yellow-500/10"
+      >
+        Enable
+      </button>
     </div>
   );
 }
