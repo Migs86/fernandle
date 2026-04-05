@@ -11,8 +11,13 @@ export async function GET(
 ) {
   const { roomId } = await params;
 
+  // Resume from last event ID on reconnection
+  const url = new URL(request.url);
+  const lastEventIdParam = url.searchParams.get("lastEventId");
+  let lastEventId = lastEventIdParam ? parseInt(lastEventIdParam, 10) : 0;
+  if (isNaN(lastEventId)) lastEventId = 0;
+
   const encoder = new TextEncoder();
-  let lastEventId = 0;
   let closed = false;
 
   const stream = new ReadableStream({
@@ -38,6 +43,7 @@ export async function GET(
 
           for (const event of events) {
             const data = JSON.stringify({
+              id: String(event.id),
               type: event.eventType,
               payload: event.payload,
             });

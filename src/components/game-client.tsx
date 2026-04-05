@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useTransition } from "react";
+import { useState, useCallback, useEffect, useTransition, useRef } from "react";
 import { GameBoard } from "./game-board";
 import { Keyboard } from "./keyboard";
 import { RoomHeader } from "./room-header";
@@ -85,6 +85,12 @@ export function GameClient({
     });
   };
 
+  // Track wordIndex in a ref so SSE handler can guard against stale events
+  const wordIndexRef = useRef(wordIndex);
+  wordIndexRef.current = wordIndex;
+  const playersRef = useRef(players);
+  playersRef.current = players;
+
   // Handle SSE events
   useRoomEvents(roomId, useCallback((event) => {
     const { type, payload } = event;
@@ -105,30 +111,34 @@ export function GameClient({
     }
 
     if (type === "round_complete") {
+      const eventWordIndex = (payload as { wordIndex?: number }).wordIndex;
+      // Ignore stale round_complete events from previous rounds
+      if (eventWordIndex !== undefined && eventWordIndex !== wordIndexRef.current) return;
       setRoundComplete(true);
       const answer = (payload as { answer?: string }).answer;
       if (answer) setRoundAnswer(answer);
     }
 
     if (type === "ready_update") {
+      const eventWordIndex = (payload as { wordIndex?: number }).wordIndex;
+      if (eventWordIndex !== undefined && eventWordIndex !== wordIndexRef.current) return;
       setReadyCount((payload as { readyCount: number }).readyCount);
     }
 
     if (type === "hint_attempt") {
       const hintUserId = (payload as { userId: string }).userId;
       if (hintUserId !== currentUserId) {
-        setPlayers((prev) => {
-          const player = prev.find((p) => p.userId === hintUserId);
-          const name = player?.name || "Someone";
-          setShameMessage(`${name} just tried to use a hint`);
-          setTimeout(() => setShameMessage(""), 3000);
-          return prev;
-        });
+        const player = playersRef.current.find((p) => p.userId === hintUserId);
+        const name = player?.name || "Someone";
+        setShameMessage(`${name} just tried to use a hint`);
+        setTimeout(() => setShameMessage(""), 3000);
       }
     }
 
     if (type === "new_word") {
       const newIndex = (payload as { wordIndex: number }).wordIndex;
+      // Only process if this is actually a newer word than what we have
+      if (newIndex <= wordIndexRef.current) return;
       setPlayers((prev) =>
         prev.map((p) => ({ ...p, guessCount: 0, status: "playing" as GameStatus }))
       );

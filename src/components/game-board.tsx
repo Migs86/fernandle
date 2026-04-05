@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 
 const MAX_GUESSES = 6;
 const WORD_LENGTH = 5;
-const FLIP_DURATION = 300; // ms per tile flip
-const FLIP_STAGGER = 200; // ms between each tile
+const FLIP_DURATION = 500; // ms per tile flip
+const FLIP_STAGGER = 350; // ms between each tile
 
 type GameBoardProps = {
   guessResults: GuessResult[];

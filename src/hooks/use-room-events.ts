@@ -10,12 +10,21 @@ export function useRoomEvents(
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
+  // Track last event ID across reconnections
+  const lastEventIdRef = useRef<string>("0");
+
   const connect = useCallback(() => {
-    const eventSource = new EventSource(`/api/room/${roomId}/events`);
+    const eventSource = new EventSource(
+      `/api/room/${roomId}/events?lastEventId=${lastEventIdRef.current}`
+    );
 
     eventSource.addEventListener("message", (e) => {
       try {
-        const event = JSON.parse(e.data) as RoomEvent;
+        const event = JSON.parse(e.data) as RoomEvent & { id?: string };
+        // Track the event ID so reconnections don't replay
+        if (event.id) {
+          lastEventIdRef.current = event.id;
+        }
         onEventRef.current(event);
       } catch {
         // Ignore malformed events
