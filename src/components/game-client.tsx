@@ -5,7 +5,6 @@ import { GameBoard } from "./game-board";
 import { Keyboard } from "./keyboard";
 import { RoomHeader } from "./room-header";
 import { SkipVoteButton } from "./skip-vote-button";
-import { HintButton } from "./hint-button";
 import { Button } from "@/components/ui/button";
 import { useRoomEvents } from "@/hooks/use-room-events";
 import { submitGuess, readyForNext } from "@/actions/game";
@@ -52,7 +51,6 @@ export function GameClient({
   const [roundComplete, setRoundComplete] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [readyCount, setReadyCount] = useState(0);
-  const [shameMessage, setShameMessage] = useState("");
   const [readyPending, startReadyTransition] = useTransition();
 
   const keyColors = buildKeyboardColors(guessResults);
@@ -123,16 +121,6 @@ export function GameClient({
       const eventWordIndex = (payload as { wordIndex?: number }).wordIndex;
       if (eventWordIndex !== undefined && eventWordIndex !== wordIndexRef.current) return;
       setReadyCount((payload as { readyCount: number }).readyCount);
-    }
-
-    if (type === "hint_attempt") {
-      const hintUserId = (payload as { userId: string }).userId;
-      if (hintUserId !== currentUserId) {
-        const player = playersRef.current.find((p) => p.userId === hintUserId);
-        const name = player?.name || "Someone";
-        setShameMessage(`${name} just tried to use a hint`);
-        setTimeout(() => setShameMessage(""), 3000);
-      }
     }
 
     if (type === "new_word") {
@@ -228,9 +216,6 @@ export function GameClient({
           <>
             <div className="shrink-0 py-1 sm:py-2 text-center">
               {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
-              {shameMessage && (
-                <p className="text-yellow-500 text-sm font-medium animate-in fade-in">{shameMessage}</p>
-              )}
             </div>
 
             <GameBoard
@@ -245,9 +230,6 @@ export function GameClient({
                 onKey={handleKey}
                 disabled={submitting}
               />
-              <div className="flex justify-center">
-                <HintButton roomId={roomId} />
-              </div>
             </div>
           </>
         )}
