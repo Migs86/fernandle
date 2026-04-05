@@ -339,7 +339,19 @@ export function GameClient({
                       <span className="text-red-400 font-mono font-bold text-xs">X/6</span>
                     )}
                     {p.status === "playing" && (
-                      <NudgeBtn roomId={roomId} targetUserId={p.userId} />
+                      <>
+                        <div className="flex gap-0.5">
+                          {Array.from({ length: 6 }).map((_, i) => (
+                            <div
+                              key={i}
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                i < p.guessCount ? "bg-zinc-400" : "bg-zinc-700"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <NudgeBtn roomId={roomId} targetUserId={p.userId} />
+                      </>
                     )}
                   </div>
                 ))}
