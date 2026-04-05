@@ -1,15 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect, useTransition } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { GameBoard } from "./game-board";
 import { Keyboard } from "./keyboard";
-import { PlayerList } from "./player-list";
 import { RoomHeader } from "./room-header";
 import { SkipVoteButton } from "./skip-vote-button";
 import { HintButton } from "./hint-button";
-import { Button } from "@/components/ui/button";
 import { useRoomEvents } from "@/hooks/use-room-events";
-import { submitGuess, startNextWord } from "@/actions/game";
+import { submitGuess } from "@/actions/game";
 import { buildKeyboardColors } from "@/lib/game-logic";
 import type { GuessResult, PlayerProgress, GameStatus, LetterResult } from "@/types";
 
@@ -49,15 +47,16 @@ export function GameClient({
   const [wordIndex, setWordIndex] = useState(initialWordIndex);
   const [skipVoteCount, setSkipVoteCount] = useState(initialSkipVotes);
   const [hasVoted, setHasVoted] = useState(initialHasVoted);
-  const [roundComplete, setRoundComplete] = useState(false);
   const [roundAnswer, setRoundAnswer] = useState(revealedWord || "");
+  const [showingAnswer, setShowingAnswer] = useState(false);
   const [shameMessage, setShameMessage] = useState("");
-  const [nextWordPending, startNextWordTransition] = useTransition();
 
   const keyColors = buildKeyboardColors(guessResults);
-  const activePlayers = players.filter((p) => p.status === "playing");
+  const finishedPlayers = players.filter((p) => p.status !== "playing");
   const totalActive = players.length;
   const votesNeeded = Math.ceil(totalActive / 2);
+  const isPlaying = gameStatus === "playing";
+  const isWaiting = !isPlaying && !showingAnswer;
 
   // Reset state when word rotates
   const resetForNewWord = useCallback((newWordIndex: number) => {
@@ -67,17 +66,10 @@ export function GameClient({
     setWordIndex(newWordIndex);
     setSkipVoteCount(0);
     setHasVoted(false);
-    setRoundComplete(false);
     setRoundAnswer("");
+    setShowingAnswer(false);
     setError("");
   }, []);
-
-  // Handle "Next Word" click
-  const handleNextWord = () => {
-    startNextWordTransition(async () => {
-      await startNextWord(roomId);
-    });
-  };
 
   // Handle SSE events
   useRoomEvents(roomId, useCallback((event) => {
@@ -99,18 +91,21 @@ export function GameClient({
     }
 
     if (type === "round_complete") {
-      setRoundComplete(true);
       const answer = (payload as { answer?: string }).answer;
       if (answer) setRoundAnswer(answer);
+      setShowingAnswer(true);
     }
 
     if (type === "hint_attempt") {
       const hintUserId = (payload as { userId: string }).userId;
       if (hintUserId !== currentUserId) {
-        const player = players.find((p) => p.userId === hintUserId);
-        const name = player?.name || "Someone";
-        setShameMessage(`${name} just tried to use a hint`);
-        setTimeout(() => setShameMessage(""), 3000);
+        setPlayers((prev) => {
+          const player = prev.find((p) => p.userId === hintUserId);
+          const name = player?.name || "Someone";
+          setShameMessage(`${name} just tried to use a hint`);
+          setTimeout(() => setShameMessage(""), 3000);
+          return prev;
+        });
       }
     }
 
@@ -125,7 +120,7 @@ export function GameClient({
     if (type === "skip_vote_update") {
       setSkipVoteCount((payload as { voteCount: number }).voteCount);
     }
-  }, [resetForNewWord, currentUserId, players]));
+  }, [resetForNewWord, currentUserId]));
 
   // Handle keyboard input
   const handleKey = useCallback(
@@ -199,99 +194,138 @@ export function GameClient({
         isAdmin={isAdmin}
       />
 
-      <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
-        {/* Game area */}
-        <div className="flex-1 flex flex-col items-center min-h-0 px-2 sm:px-4">
-          {/* Status / round complete overlay area */}
-          <div className="shrink-0 py-1 sm:py-2 text-center">
-            {roundComplete && (
-              <div className="w-full max-w-sm rounded-lg border bg-card p-3 sm:p-4 space-y-2 sm:space-y-3 mx-auto">
-                <p className="text-xs sm:text-sm text-muted-foreground uppercase tracking-wider">
-                  Round #{wordIndex + 1} complete
-                </p>
-                <p className="text-xl sm:text-2xl font-bold font-mono uppercase tracking-widest">
-                  {roundAnswer}
-                </p>
-                <div className="space-y-1 text-sm">
-                  {players.map((p) => (
-                    <div key={p.userId} className="flex items-center justify-between px-2">
-                      <span className={p.userId === currentUserId ? "font-bold" : ""}>
-                        {p.name}
-                      </span>
-                      <span className={
-                        p.status === "won"
-                          ? "text-green-500 font-mono font-bold"
-                          : "text-red-400 font-mono"
-                      }>
-                        {p.status === "won" ? `${p.guessCount}/6` : "X/6"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <Button
-                  onClick={handleNextWord}
-                  disabled={nextWordPending}
-                  className="w-full"
-                >
-                  {nextWordPending ? "Starting..." : "Next Word"}
-                </Button>
-              </div>
-            )}
-            {!roundComplete && gameStatus === "won" && (
-              <p className="text-green-600 font-bold text-sm sm:text-lg">
-                You got it in {guessResults.length}! Waiting for others...
-              </p>
-            )}
-            {!roundComplete && gameStatus === "lost" && (
-              <p className="text-red-500 font-bold text-sm sm:text-lg">
-                Out of guesses. Waiting for others...
-              </p>
-            )}
-            {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
-            {shameMessage && (
-              <p className="text-yellow-500 text-sm font-medium animate-in fade-in">{shameMessage}</p>
-            )}
-          </div>
+      <div className="flex-1 flex flex-col items-center min-h-0 overflow-hidden">
+        {/* === PLAYING STATE === */}
+        {isPlaying && (
+          <>
+            <div className="shrink-0 py-1 sm:py-2 text-center">
+              {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
+              {shameMessage && (
+                <p className="text-yellow-500 text-sm font-medium animate-in fade-in">{shameMessage}</p>
+              )}
+            </div>
 
-          {/* Game board — fills available space */}
-          <GameBoard
-            guessResults={guessResults}
-            currentGuess={currentGuess}
-            gameOver={gameStatus !== "playing"}
-          />
-
-          {/* Bottom controls */}
-          <div className="shrink-0 w-full py-1 sm:py-2 space-y-2">
-            <Keyboard
-              keyColors={keyColors}
-              onKey={handleKey}
-              disabled={gameStatus !== "playing" || submitting}
+            <GameBoard
+              guessResults={guessResults}
+              currentGuess={currentGuess}
+              gameOver={false}
             />
 
-            {gameStatus === "playing" && (
+            <div className="shrink-0 w-full px-2 sm:px-4 py-1 sm:py-2 space-y-2">
+              <Keyboard
+                keyColors={keyColors}
+                onKey={handleKey}
+                disabled={submitting}
+              />
               <div className="flex justify-center">
                 <HintButton roomId={roomId} />
               </div>
-            )}
+            </div>
+          </>
+        )}
 
-            {!roundComplete && gameStatus !== "playing" && activePlayers.length > 0 && (
-              <div className="flex justify-center">
-                <SkipVoteButton
-                  roomId={roomId}
-                  hasVoted={hasVoted}
-                  voteCount={skipVoteCount}
-                  totalPlayers={totalActive}
-                  votesNeeded={votesNeeded}
-                />
+        {/* === WAITING STATE (finished, waiting for others) === */}
+        {isWaiting && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 p-4 text-center">
+            {/* Your result */}
+            <div>
+              {gameStatus === "won" ? (
+                <p className="text-green-500 font-bold text-xl">
+                  You got it in {guessResults.length}!
+                </p>
+              ) : (
+                <p className="text-red-400 font-bold text-xl">
+                  Out of guesses
+                </p>
+              )}
+            </div>
+
+            {/* Progress */}
+            <div className="space-y-3 w-full max-w-xs">
+              <p className="text-lg font-semibold">
+                Waiting for Round #{wordIndex + 2} to start...
+              </p>
+              <p className="text-muted-foreground">
+                {finishedPlayers.length}/{totalActive} have completed
+              </p>
+
+              {/* Player completion status */}
+              <div className="space-y-1.5">
+                {players.map((p) => (
+                  <div key={p.userId} className="flex items-center gap-2 text-sm">
+                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold overflow-hidden shrink-0">
+                      {p.avatarUrl ? (
+                        <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        p.name.slice(0, 2).toUpperCase()
+                      )}
+                    </div>
+                    <span className="flex-1 text-left truncate">{p.name}</span>
+                    {p.status === "won" && (
+                      <span className="text-green-500 font-mono font-bold text-xs">{p.guessCount}/6</span>
+                    )}
+                    {p.status === "lost" && (
+                      <span className="text-red-400 font-mono font-bold text-xs">X/6</span>
+                    )}
+                    {p.status === "playing" && (
+                      <span className="text-muted-foreground text-xs">playing...</span>
+                    )}
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
 
-        {/* Player sidebar — desktop only */}
-        <div className="hidden lg:block lg:w-56 lg:border-l lg:pl-4 py-4">
-          <PlayerList players={players} currentUserId={currentUserId} />
-        </div>
+            {/* Skip vote */}
+            <SkipVoteButton
+              roomId={roomId}
+              hasVoted={hasVoted}
+              voteCount={skipVoteCount}
+              totalPlayers={totalActive}
+              votesNeeded={votesNeeded}
+            />
+
+            {/* Links */}
+            <div className="flex gap-4 text-sm">
+              <a href={`/room/${roomId}/stats`} className="text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4">
+                Stats
+              </a>
+              <a href={`/room/${roomId}/history`} className="text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4">
+                History
+              </a>
+            </div>
+          </div>
+        )}
+
+        {/* === ANSWER REVEAL (brief, before new_word arrives) === */}
+        {showingAnswer && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 p-4 text-center">
+            <p className="text-sm text-muted-foreground uppercase tracking-wider">
+              Round #{wordIndex + 1} complete
+            </p>
+            <p className="text-3xl font-bold font-mono uppercase tracking-widest">
+              {roundAnswer}
+            </p>
+            <div className="space-y-1 w-full max-w-xs">
+              {players.map((p) => (
+                <div key={p.userId} className="flex items-center justify-between text-sm px-2">
+                  <span className={p.userId === currentUserId ? "font-bold" : ""}>
+                    {p.name}
+                  </span>
+                  <span className={
+                    p.status === "won"
+                      ? "text-green-500 font-mono font-bold"
+                      : "text-red-400 font-mono"
+                  }>
+                    {p.status === "won" ? `${p.guessCount}/6` : "X/6"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-muted-foreground animate-pulse">
+              Next round starting...
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

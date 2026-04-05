@@ -170,12 +170,15 @@ export async function voteSkip(roomId: string) {
         )
       );
 
-    // Emit round complete with the answer (players click "Next Word" to continue)
+    // Emit round complete with the answer
     await db.insert(roomEvents).values({
       roomId,
       eventType: "round_complete",
       payload: { wordIndex: room.wordIndex, answer: room.currentWord, skipped: true },
     });
+
+    // Auto-rotate to next word
+    await rotateWord(roomId, room.wordIndex);
   }
 }
 
@@ -204,7 +207,7 @@ async function checkRoundComplete(roomId: string, wordIndex: number) {
     }
   }
 
-  // Everyone done — get the answer word and emit round complete
+  // Everyone done — emit round complete then auto-rotate
   const [room] = await db
     .select()
     .from(rooms)
@@ -216,46 +219,9 @@ async function checkRoundComplete(roomId: string, wordIndex: number) {
     eventType: "round_complete",
     payload: { wordIndex, answer: room?.currentWord },
   });
-  // Word does NOT rotate yet — players click "Next Word"
-}
 
-export async function startNextWord(roomId: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Not authenticated");
-
-  // Verify round is actually complete before rotating
-  const [room] = await db
-    .select()
-    .from(rooms)
-    .where(eq(rooms.id, roomId))
-    .limit(1);
-
-  if (!room) throw new Error("Room not found");
-
-  const activeMembers = await db
-    .select({ userId: roomMembers.userId })
-    .from(roomMembers)
-    .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.isActive, true)));
-
-  for (const member of activeMembers) {
-    const [game] = await db
-      .select()
-      .from(games)
-      .where(
-        and(
-          eq(games.roomId, roomId),
-          eq(games.userId, member.userId),
-          eq(games.wordIndex, room.wordIndex)
-        )
-      )
-      .limit(1);
-
-    if (game && game.status === "playing") {
-      throw new Error("Not all players have finished");
-    }
-  }
-
-  await rotateWord(roomId, room.wordIndex);
+  // Auto-rotate to next word
+  await rotateWord(roomId, wordIndex);
 }
 
 async function rotateWord(roomId: string, expectedWordIndex: number) {
