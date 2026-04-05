@@ -329,15 +329,17 @@ export async function readyForNext(roomId: string) {
   const readyCount = readyUsers.size;
   const totalMembers = activeMembers.length;
 
+  const needed = Math.ceil(totalMembers / 2);
+
   // Emit ready update so all clients see the count
   await db.insert(roomEvents).values({
     roomId,
     eventType: "ready_update",
-    payload: { readyCount, totalMembers, wordIndex: room.wordIndex },
+    payload: { readyCount, needed, totalMembers, wordIndex: room.wordIndex },
   });
 
-  // If everyone is ready, rotate to next word
-  if (readyCount >= totalMembers) {
+  // If majority is ready, rotate to next word
+  if (readyCount >= needed) {
     await rotateWord(roomId, room.wordIndex);
   }
 }

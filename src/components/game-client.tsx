@@ -348,7 +348,7 @@ export function GameClient({
                 {isReady ? "Waiting for others..." : "Next Game"}
               </Button>
               <p className="text-sm text-muted-foreground">
-                {readyCount}/{totalActive} ready
+                {readyCount}/{Math.ceil(totalActive / 2)} needed to start
               </p>
             </div>
 
