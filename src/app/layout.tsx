@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Space_Mono } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { PwaInstallPrompt } from "@/components/pwa-install-prompt";
 import "./globals.css";
 
 const inter = Inter({
@@ -19,6 +20,12 @@ export const metadata: Metadata = {
   title: "Fernandle — Multiplayer Wordle",
   description:
     "Compete with friends on the same word. No waiting for tomorrow.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Fernandle",
+  },
 };
 
 export const viewport: Viewport = {
@@ -40,7 +47,10 @@ export default function RootLayout({
     >
       <body className="h-dvh flex flex-col font-sans overflow-hidden">
         <SessionProvider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            {children}
+            <PwaInstallPrompt />
+          </TooltipProvider>
         </SessionProvider>
       </body>
     </html>

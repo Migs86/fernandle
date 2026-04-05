@@ -166,25 +166,48 @@ export default async function HistoryPage({
                 key={round.wordIndex}
                 className="border rounded-lg p-4 space-y-3"
               >
-                {/* Round header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground font-mono">
-                      #{round.wordIndex + 1}
-                    </span>
-                    {round.answer ? (
-                      <span className={`text-lg font-bold font-mono uppercase tracking-wider ${
-                        round.players.some((p) => p.status === "won") ? "text-green-500" : "text-foreground"
-                      }`}>
-                        {round.answer}
-                      </span>
-                    ) : (
-                      <span className="text-lg font-bold font-mono uppercase tracking-wider text-muted-foreground">
-                        ???
-                      </span>
-                    )}
-                  </div>
-                </div>
+                {/* Round header with champion */}
+                {(() => {
+                  const winners = round.players.filter((p) => p.status === "won");
+                  let champion: typeof round.players[0] | null = null;
+                  if (winners.length > 0) {
+                    const bestCount = Math.min(...winners.map((w) => w.guessCount));
+                    const best = winners.filter((w) => w.guessCount === bestCount);
+                    if (best.length === 1) champion = best[0];
+                  }
+
+                  return (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground font-mono">
+                          #{round.wordIndex + 1}
+                        </span>
+                        <span className={`text-lg font-bold font-mono uppercase tracking-wider ${
+                          winners.length > 0 ? "text-green-500" : "text-foreground"
+                        }`}>
+                          {round.answer || "???"}
+                        </span>
+                      </div>
+                      {champion ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-yellow-500 uppercase tracking-wider font-semibold">Champion</span>
+                          <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold overflow-hidden shrink-0 ring-1 ring-yellow-500/50">
+                            {champion.avatarUrl ? (
+                              <img src={champion.avatarUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              champion.name.slice(0, 2).toUpperCase()
+                            )}
+                          </div>
+                          <span className="text-xs font-medium">{champion.name}</span>
+                        </div>
+                      ) : winners.length > 0 ? (
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Tied</span>
+                      ) : (
+                        <span className="text-[10px] text-red-400 uppercase tracking-wider">No winner</span>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* Player results */}
                 <div className="space-y-2">
