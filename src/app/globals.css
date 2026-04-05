@@ -127,4 +127,10 @@
   html {
     @apply font-sans;
   }
+  html, body {
+    overscroll-behavior: none;
+    overflow: hidden;
+    height: 100%;
+    height: 100dvh;
+  }
 }

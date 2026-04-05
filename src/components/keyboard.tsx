@@ -17,9 +17,13 @@ type KeyboardProps = {
 
 export function Keyboard({ keyColors, onKey, disabled }: KeyboardProps) {
   return (
-    <div className="flex flex-col gap-1.5 items-center" role="group" aria-label="Keyboard">
+    <div
+      className="flex flex-col gap-[5px] sm:gap-1.5 w-full max-w-lg mx-auto shrink-0 pb-1"
+      role="group"
+      aria-label="Keyboard"
+    >
       {ROWS.map((row, i) => (
-        <div key={i} className="flex gap-1">
+        <div key={i} className="flex gap-[4px] sm:gap-1.5 justify-center">
           {row.map((key) => {
             const color = keyColors[key];
             const isWide = key === "Enter" || key === "⌫";
@@ -29,10 +33,11 @@ export function Keyboard({ keyColors, onKey, disabled }: KeyboardProps) {
                 onClick={() => onKey(key)}
                 disabled={disabled}
                 className={cn(
-                  "h-14 rounded-md font-semibold uppercase text-sm select-none",
+                  "h-[52px] sm:h-14 rounded-md font-bold uppercase select-none",
+                  "text-[clamp(0.8rem,3vw,1rem)]",
                   "transition-colors duration-150",
                   "active:scale-95 disabled:opacity-50",
-                  isWide ? "px-3 min-w-[65px]" : "w-9 sm:w-10",
+                  isWide ? "flex-[1.5] max-w-[80px]" : "flex-1 max-w-[44px]",
                   color === "correct" && "bg-green-600 text-white",
                   color === "present" && "bg-yellow-500 text-white",
                   color === "absent" && "bg-zinc-800 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-700 opacity-60",

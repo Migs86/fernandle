@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { rooms, roomMembers, games } from "@/lib/schema";
+import { rooms, roomMembers, games, users, roomEvents } from "@/lib/schema";
 import { getRandomWord } from "@/lib/words";
 import { eq, and } from "drizzle-orm";
 
@@ -84,4 +84,30 @@ export async function joinRoom(roomId: string) {
       wordIndex: room.wordIndex,
     });
   }
+}
+
+const ADMIN_EMAIL = "miguelenriquefernando@gmail.com";
+
+export async function deleteRoom(roomId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Not authenticated");
+
+  // Check admin
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, session.user.id))
+    .limit(1);
+
+  if (!user || user.email !== ADMIN_EMAIL) {
+    throw new Error("Not authorized");
+  }
+
+  // Delete room events (no cascade FK)
+  await db.delete(roomEvents).where(eq(roomEvents.roomId, roomId));
+
+  // Delete room (cascades to room_members, games, guesses, skip_votes)
+  await db.delete(rooms).where(eq(rooms.id, roomId));
+
+  redirect("/");
 }

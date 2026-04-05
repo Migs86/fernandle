@@ -255,20 +255,28 @@ export async function startNextWord(roomId: string) {
     }
   }
 
-  await rotateWord(roomId);
+  await rotateWord(roomId, room.wordIndex);
 }
 
-async function rotateWord(roomId: string) {
+async function rotateWord(roomId: string, expectedWordIndex: number) {
   const newWord = getRandomWord();
 
-  const [room] = await db
+  // Atomically increment only if wordIndex hasn't changed (prevents double-rotation)
+  const updated = await db
     .update(rooms)
     .set({
       currentWord: newWord,
       wordIndex: sql`${rooms.wordIndex} + 1`,
     })
-    .where(eq(rooms.id, roomId))
+    .where(and(eq(rooms.id, roomId), eq(rooms.wordIndex, expectedWordIndex)))
     .returning();
+
+  if (updated.length === 0) {
+    // Another request already rotated — no-op
+    return;
+  }
+
+  const room = updated[0];
 
   // Create new games for all active members
   const activeMembers = await db

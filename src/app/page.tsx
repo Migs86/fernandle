@@ -30,11 +30,13 @@ export default async function Home() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-full gap-8 p-4">
-      {/* Header */}
-      <div className="absolute top-4 right-4">
-        <AuthButton user={session?.user} />
-      </div>
+    <div className="flex flex-col items-center justify-center flex-1 gap-8 p-4 overflow-y-auto">
+      {/* Sign out — only when logged in */}
+      {session?.user && (
+        <div className="absolute top-4 right-4">
+          <AuthButton user={session.user} />
+        </div>
+      )}
 
       {/* Hero */}
       <div className="text-center space-y-3">

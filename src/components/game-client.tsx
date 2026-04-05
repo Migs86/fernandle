@@ -24,6 +24,7 @@ type GameClientProps = {
   initialSkipVotes: number;
   initialHasVoted: boolean;
   revealedWord?: string;
+  isAdmin?: boolean;
 };
 
 export function GameClient({
@@ -37,6 +38,7 @@ export function GameClient({
   initialSkipVotes,
   initialHasVoted,
   revealedWord,
+  isAdmin,
 }: GameClientProps) {
   const [guessResults, setGuessResults] = useState<GuessResult[]>(initialGuesses);
   const [currentGuess, setCurrentGuess] = useState("");
@@ -187,106 +189,106 @@ export function GameClient({
   }, [handleKey]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       <RoomHeader
         roomId={roomId}
         roomName={roomName}
         wordNumber={wordIndex}
         playerCount={players.length}
+        isAdmin={isAdmin}
       />
 
-      <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 max-w-4xl mx-auto w-full">
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
         {/* Game area */}
-        <div className="flex-1 flex flex-col items-center gap-4">
-          {/* Round complete summary */}
-          {roundComplete && (
-            <div className="w-full max-w-sm rounded-lg border bg-card p-4 space-y-3 text-center">
-              <p className="text-sm text-muted-foreground uppercase tracking-wider">
-                Round #{wordIndex + 1} complete
-              </p>
-              <p className="text-2xl font-bold font-mono uppercase tracking-widest">
-                {roundAnswer}
-              </p>
-              {/* Round results */}
-              <div className="space-y-1 text-sm">
-                {players.map((p) => (
-                  <div key={p.userId} className="flex items-center justify-between px-2">
-                    <span className={p.userId === currentUserId ? "font-bold" : ""}>
-                      {p.name}
-                    </span>
-                    <span className={
-                      p.status === "won"
-                        ? "text-green-500 font-mono font-bold"
-                        : "text-red-400 font-mono"
-                    }>
-                      {p.status === "won" ? `${p.guessCount}/6` : "X/6"}
-                    </span>
-                  </div>
-                ))}
+        <div className="flex-1 flex flex-col items-center min-h-0 px-2 sm:px-4">
+          {/* Status / round complete overlay area */}
+          <div className="shrink-0 py-1 sm:py-2 text-center">
+            {roundComplete && (
+              <div className="w-full max-w-sm rounded-lg border bg-card p-3 sm:p-4 space-y-2 sm:space-y-3 mx-auto">
+                <p className="text-xs sm:text-sm text-muted-foreground uppercase tracking-wider">
+                  Round #{wordIndex + 1} complete
+                </p>
+                <p className="text-xl sm:text-2xl font-bold font-mono uppercase tracking-widest">
+                  {roundAnswer}
+                </p>
+                <div className="space-y-1 text-sm">
+                  {players.map((p) => (
+                    <div key={p.userId} className="flex items-center justify-between px-2">
+                      <span className={p.userId === currentUserId ? "font-bold" : ""}>
+                        {p.name}
+                      </span>
+                      <span className={
+                        p.status === "won"
+                          ? "text-green-500 font-mono font-bold"
+                          : "text-red-400 font-mono"
+                      }>
+                        {p.status === "won" ? `${p.guessCount}/6` : "X/6"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  onClick={handleNextWord}
+                  disabled={nextWordPending}
+                  className="w-full"
+                >
+                  {nextWordPending ? "Starting..." : "Next Word"}
+                </Button>
               </div>
-              <Button
-                onClick={handleNextWord}
-                disabled={nextWordPending}
-                className="w-full"
-              >
-                {nextWordPending ? "Starting..." : "Next Word"}
-              </Button>
-            </div>
-          )}
+            )}
+            {!roundComplete && gameStatus === "won" && (
+              <p className="text-green-600 font-bold text-sm sm:text-lg">
+                You got it in {guessResults.length}! Waiting for others...
+              </p>
+            )}
+            {!roundComplete && gameStatus === "lost" && (
+              <p className="text-red-500 font-bold text-sm sm:text-lg">
+                Out of guesses. Waiting for others...
+              </p>
+            )}
+            {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
+            {shameMessage && (
+              <p className="text-yellow-500 text-sm font-medium animate-in fade-in">{shameMessage}</p>
+            )}
+          </div>
 
-          {/* Status messages (when round NOT complete) */}
-          {!roundComplete && gameStatus === "won" && (
-            <div className="text-green-600 font-bold text-lg">
-              You got it in {guessResults.length}! Waiting for others...
-            </div>
-          )}
-          {!roundComplete && gameStatus === "lost" && (
-            <div className="text-red-500 font-bold text-lg">
-              Out of guesses. Waiting for others...
-            </div>
-          )}
-          {error && (
-            <div className="text-red-500 text-sm font-medium">{error}</div>
-          )}
-          {shameMessage && (
-            <div className="text-yellow-500 text-sm font-medium animate-in fade-in">
-              {shameMessage}
-            </div>
-          )}
-
+          {/* Game board — fills available space */}
           <GameBoard
             guessResults={guessResults}
             currentGuess={currentGuess}
             gameOver={gameStatus !== "playing"}
           />
 
-          <Keyboard
-            keyColors={keyColors}
-            onKey={handleKey}
-            disabled={gameStatus !== "playing" || submitting}
-          />
+          {/* Bottom controls */}
+          <div className="shrink-0 w-full py-1 sm:py-2 space-y-2">
+            <Keyboard
+              keyColors={keyColors}
+              onKey={handleKey}
+              disabled={gameStatus !== "playing" || submitting}
+            />
 
-          {/* Hint button — only while playing */}
-          {gameStatus === "playing" && (
-            <HintButton roomId={roomId} />
-          )}
+            {gameStatus === "playing" && (
+              <div className="flex justify-center">
+                <HintButton roomId={roomId} />
+              </div>
+            )}
 
-          {/* Skip vote — show when you're done but others aren't, and round not yet complete */}
-          {!roundComplete && gameStatus !== "playing" && activePlayers.length > 0 && (
-            <div className="mt-2">
-              <SkipVoteButton
-                roomId={roomId}
-                hasVoted={hasVoted}
-                voteCount={skipVoteCount}
-                totalPlayers={totalActive}
-                votesNeeded={votesNeeded}
-              />
-            </div>
-          )}
+            {!roundComplete && gameStatus !== "playing" && activePlayers.length > 0 && (
+              <div className="flex justify-center">
+                <SkipVoteButton
+                  roomId={roomId}
+                  hasVoted={hasVoted}
+                  voteCount={skipVoteCount}
+                  totalPlayers={totalActive}
+                  votesNeeded={votesNeeded}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Player sidebar */}
-        <div className="lg:w-64 lg:border-l lg:pl-4">
+        {/* Player sidebar — hidden on mobile, shown on desktop */}
+        <div className="hidden lg:block lg:w-64 lg:border-l lg:pl-4 py-4">
           <PlayerList players={players} currentUserId={currentUserId} />
         </div>
       </div>

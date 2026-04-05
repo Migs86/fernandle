@@ -16,43 +16,54 @@ export function GameBoard({ guessResults, currentGuess, gameOver }: GameBoardPro
   const emptyRows = MAX_GUESSES - guessResults.length - (gameOver ? 0 : 1);
 
   return (
-    <div className="grid gap-1.5" role="grid" aria-label="Game board">
-      {/* Completed guesses */}
-      {guessResults.map((gr, rowIdx) => (
-        <div key={rowIdx} className="flex gap-1.5 justify-center" role="row">
-          {gr.guess.split("").map((letter, colIdx) => (
+    <div
+      className="flex-1 flex items-center justify-center w-full"
+      style={{ maxHeight: "calc(6 * (68px + 6px))" }}
+    >
+      {/*
+        Grid uses CSS container query sizing:
+        - Each tile is sized with aspect-ratio: 1
+        - The grid fills available height, capped at max-height
+      */}
+      <div
+        className="grid gap-[5px] sm:gap-1.5 w-full h-full"
+        style={{
+          gridTemplateRows: `repeat(${MAX_GUESSES}, 1fr)`,
+          gridTemplateColumns: `repeat(${WORD_LENGTH}, 1fr)`,
+          maxWidth: "min(350px, calc((100vh - 220px) / 6 * 5))",
+          maxHeight: "min(420px, 100%)",
+        }}
+        role="grid"
+        aria-label="Game board"
+      >
+        {/* Completed guesses */}
+        {guessResults.map((gr, rowIdx) =>
+          gr.guess.split("").map((letter, colIdx) => (
             <Tile
-              key={colIdx}
+              key={`${rowIdx}-${colIdx}`}
               letter={letter}
               result={gr.results[colIdx]}
               delay={colIdx * 100}
               revealed
             />
-          ))}
-        </div>
-      ))}
+          ))
+        )}
 
-      {/* Current guess row */}
-      {!gameOver && (
-        <div className="flex gap-1.5 justify-center" role="row">
-          {Array.from({ length: WORD_LENGTH }).map((_, colIdx) => (
+        {/* Current guess row */}
+        {!gameOver &&
+          Array.from({ length: WORD_LENGTH }).map((_, colIdx) => (
             <Tile
-              key={colIdx}
+              key={`current-${colIdx}`}
               letter={currentGuess[colIdx] || ""}
               active={colIdx === currentGuess.length}
             />
           ))}
-        </div>
-      )}
 
-      {/* Empty rows */}
-      {Array.from({ length: Math.max(0, emptyRows) }).map((_, rowIdx) => (
-        <div key={`empty-${rowIdx}`} className="flex gap-1.5 justify-center" role="row">
-          {Array.from({ length: WORD_LENGTH }).map((_, colIdx) => (
-            <Tile key={colIdx} letter="" />
-          ))}
-        </div>
-      ))}
+        {/* Empty rows */}
+        {Array.from({ length: Math.max(0, emptyRows) * WORD_LENGTH }).map((_, i) => (
+          <Tile key={`empty-${i}`} letter="" />
+        ))}
+      </div>
     </div>
   );
 }
@@ -69,8 +80,9 @@ function Tile({ letter, result, revealed, active, delay = 0 }: TileProps) {
   return (
     <div
       className={cn(
-        "w-14 h-14 sm:w-16 sm:h-16 flex items-center justify-center text-2xl font-bold uppercase border-2 rounded-md select-none",
-        "transition-all duration-500",
+        "aspect-square w-full max-w-[68px] flex items-center justify-center font-bold uppercase border-2 rounded-md select-none",
+        "text-[clamp(1.25rem,4vw,2rem)]",
+        "transition-all duration-500 mx-auto",
         revealed && result === "correct" && "bg-green-600 border-green-600 text-white",
         revealed && result === "present" && "bg-yellow-500 border-yellow-500 text-white",
         revealed && result === "absent" && "bg-zinc-600 border-zinc-600 text-white",

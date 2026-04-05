@@ -135,6 +135,14 @@ export default async function RoomPage({
 
   const hasVoted = currentSkipVotes.some((v) => v.userId === session.user!.id);
 
+  // Check admin
+  const [currentUser] = await db
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, session.user.id))
+    .limit(1);
+  const isAdmin = currentUser?.email === "miguelenriquefernando@gmail.com";
+
   return (
     <GameClient
       roomId={roomId}
@@ -147,6 +155,7 @@ export default async function RoomPage({
       initialSkipVotes={currentSkipVotes.length}
       initialHasVoted={hasVoted}
       revealedWord={revealedWord}
+      isAdmin={isAdmin}
     />
   );
 }

@@ -4,11 +4,19 @@ import { db } from "@/lib/db";
 import { rooms, roomMembers, games, guesses, users } from "@/lib/schema";
 import { eq, and, sql } from "drizzle-orm";
 
-type LeaderboardEntry = {
+type PlayerRoomStats = {
   userId: string;
   name: string;
   avatarUrl: string | null;
-  value: number;
+  played: number;
+  won: number;
+  winPct: number;
+  currentStreak: number;
+  maxStreak: number;
+  avgGuesses: number;
+  guessDistribution: number[];
+  hintAttempts: number;
+  roundWins: number;
 };
 
 export default async function RoomStatsPage({
@@ -41,13 +49,14 @@ export default async function RoomStatsPage({
     .innerJoin(users, eq(roomMembers.userId, users.id))
     .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.isActive, true)));
 
-  // Get all completed games for this room
+  // Get all completed games for this room, ordered by wordIndex for streak calculation
   const allGames = await db
     .select({
       userId: games.userId,
       wordIndex: games.wordIndex,
       status: games.status,
       gameId: games.id,
+      hintAttempts: games.hintAttempts,
     })
     .from(games)
     .where(and(eq(games.roomId, roomId), sql`${games.status} != 'playing'`));
@@ -62,31 +71,7 @@ export default async function RoomStatsPage({
     gameGuessCount[game.gameId] = result.count;
   }
 
-  // Build per-player stats
-  const memberMap = new Map(members.map((m) => [m.userId, m]));
-
-  // --- Average guess number (wins only, lower is better) ---
-  const avgGuesses: LeaderboardEntry[] = [];
-  for (const member of members) {
-    const wins = allGames.filter(
-      (g) => g.userId === member.userId && g.status === "won"
-    );
-    if (wins.length === 0) continue;
-    const totalGuesses = wins.reduce(
-      (sum, g) => sum + (gameGuessCount[g.gameId] || 0),
-      0
-    );
-    avgGuesses.push({
-      userId: member.userId,
-      name: member.name,
-      avatarUrl: member.avatarUrl,
-      value: Math.round((totalGuesses / wins.length) * 100) / 100,
-    });
-  }
-  avgGuesses.sort((a, b) => a.value - b.value);
-
-  // --- Total "wins" (best result in a round, no ties) ---
-  // Group games by wordIndex, find rounds where exactly one player had the best (lowest guess count + won)
+  // Group games by wordIndex for round-win calculation
   const roundMap = new Map<number, { userId: string; status: string; guessCount: number }[]>();
   for (const game of allGames) {
     const entries = roundMap.get(game.wordIndex) || [];
@@ -98,99 +83,91 @@ export default async function RoomStatsPage({
     roundMap.set(game.wordIndex, entries);
   }
 
-  const winCounts: Record<string, number> = {};
-  const lossCounts: Record<string, number> = {};
-  for (const member of members) {
-    winCounts[member.userId] = 0;
-    lossCounts[member.userId] = 0;
-  }
-
+  // Count round wins per player (best result, no ties)
+  const roundWinCounts: Record<string, number> = {};
+  for (const member of members) roundWinCounts[member.userId] = 0;
   for (const [, entries] of roundMap) {
-    // Best result: won with fewest guesses
     const winners = entries.filter((e) => e.status === "won");
     if (winners.length > 0) {
-      const bestGuessCount = Math.min(...winners.map((w) => w.guessCount));
-      const bestPlayers = winners.filter((w) => w.guessCount === bestGuessCount);
-      // Solo win counts. Multi-player: no ties.
+      const best = Math.min(...winners.map((w) => w.guessCount));
+      const bestPlayers = winners.filter((w) => w.guessCount === best);
       if (bestPlayers.length === 1) {
-        winCounts[bestPlayers[0].userId]++;
-      }
-    }
-
-    // Worst result only applies with 2+ players
-    if (entries.length < 2) continue;
-
-    const losers = entries.filter((e) => e.status === "lost");
-    if (losers.length > 0) {
-      if (losers.length === 1) {
-        lossCounts[losers[0].userId]++;
-      }
-    } else {
-      // Everyone won — worst is highest guess count
-      const worstGuessCount = Math.max(...entries.map((e) => e.guessCount));
-      const worstPlayers = entries.filter((e) => e.guessCount === worstGuessCount);
-      if (worstPlayers.length === 1) {
-        lossCounts[worstPlayers[0].userId]++;
+        roundWinCounts[bestPlayers[0].userId]++;
       }
     }
   }
 
-  const totalWins: LeaderboardEntry[] = members
-    .map((m) => ({
-      userId: m.userId,
-      name: m.name,
-      avatarUrl: m.avatarUrl,
-      value: winCounts[m.userId],
-    }))
-    .sort((a, b) => b.value - a.value);
+  // Build per-player stats
+  const playerStats: PlayerRoomStats[] = members.map((member) => {
+    const playerGames = allGames
+      .filter((g) => g.userId === member.userId)
+      .sort((a, b) => a.wordIndex - b.wordIndex);
 
-  const totalLosses: LeaderboardEntry[] = members
-    .map((m) => ({
-      userId: m.userId,
-      name: m.name,
-      avatarUrl: m.avatarUrl,
-      value: lossCounts[m.userId],
-    }))
-    .sort((a, b) => b.value - a.value);
+    const played = playerGames.length;
+    const won = playerGames.filter((g) => g.status === "won").length;
+    const winPct = played > 0 ? Math.round((won / played) * 100) : 0;
 
-  // --- Hint attempts (cheater leaderboard) ---
-  const hintCounts: Record<string, number> = {};
-  for (const member of members) {
-    hintCounts[member.userId] = 0;
-  }
-  for (const game of allGames) {
-    if (game.userId in hintCounts) {
-      // Need to query hint_attempts for this game
-      const [gameRow] = await db
-        .select({ hintAttempts: games.hintAttempts })
-        .from(games)
-        .where(eq(games.id, game.gameId))
-        .limit(1);
-      hintCounts[game.userId] += gameRow?.hintAttempts || 0;
+    // Streaks (based on wordIndex order within this room)
+    let currentStreak = 0;
+    let maxStreak = 0;
+    let streak = 0;
+    for (const g of playerGames) {
+      if (g.status === "won") {
+        streak++;
+        maxStreak = Math.max(maxStreak, streak);
+      } else {
+        streak = 0;
+      }
     }
-  }
+    currentStreak = streak;
 
-  const hintLeaderboard: LeaderboardEntry[] = members
-    .map((m) => ({
-      userId: m.userId,
-      name: m.name,
-      avatarUrl: m.avatarUrl,
-      value: hintCounts[m.userId],
-    }))
-    .filter((e) => e.value > 0)
-    .sort((a, b) => b.value - a.value);
+    // Average guesses (wins only)
+    const wins = playerGames.filter((g) => g.status === "won");
+    const totalGuesses = wins.reduce((sum, g) => sum + (gameGuessCount[g.gameId] || 0), 0);
+    const avgGuesses = wins.length > 0 ? Math.round((totalGuesses / wins.length) * 100) / 100 : 0;
+
+    // Guess distribution
+    const guessDistribution = [0, 0, 0, 0, 0, 0];
+    for (const g of wins) {
+      const count = gameGuessCount[g.gameId] || 0;
+      if (count >= 1 && count <= 6) {
+        guessDistribution[count - 1]++;
+      }
+    }
+
+    // Hint attempts
+    const hintAttempts = playerGames.reduce((sum, g) => sum + (g.hintAttempts || 0), 0);
+
+    return {
+      userId: member.userId,
+      name: member.name,
+      avatarUrl: member.avatarUrl,
+      played,
+      won,
+      winPct,
+      currentStreak,
+      maxStreak,
+      avgGuesses,
+      guessDistribution,
+      hintAttempts,
+      roundWins: roundWinCounts[member.userId] || 0,
+    };
+  });
+
+  // Sort by round wins desc, then win% desc
+  playerStats.sort((a, b) => b.roundWins - a.roundWins || b.winPct - a.winPct);
 
   const totalRounds = roundMap.size;
 
   return (
-    <div className="flex flex-col items-center min-h-full p-4">
-      <div className="w-full max-w-lg space-y-8">
+    <div className="flex-1 overflow-y-auto p-4">
+      <div className="w-full max-w-lg mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">{room.name}</h1>
             <p className="text-sm text-muted-foreground">
-              Room stats &middot; {totalRounds} rounds played
+              {totalRounds} rounds played
             </p>
           </div>
           <a
@@ -201,113 +178,93 @@ export default async function RoomStatsPage({
           </a>
         </div>
 
-        {/* Average Guesses Leaderboard */}
-        <Leaderboard
-          title="Average Guesses"
-          subtitle="Wins only, lower is better"
-          entries={avgGuesses}
-          formatValue={(v) => v.toFixed(2)}
-          highlight="low"
-        />
+        {/* Per-player stat cards */}
+        {playerStats.map((player) => (
+          <PlayerStatCard key={player.userId} player={player} isYou={player.userId === session.user!.id} />
+        ))}
 
-        {/* Total Wins */}
-        <Leaderboard
-          title="Total Wins"
-          subtitle="Best result in round, no ties count"
-          entries={totalWins}
-          formatValue={(v) => String(v)}
-          highlight="high"
-        />
-
-        {/* Total Losses */}
-        <Leaderboard
-          title="Total Losses"
-          subtitle="Worst result in round, no ties count"
-          entries={totalLosses}
-          formatValue={(v) => String(v)}
-          highlight="high-bad"
-        />
-
-        {/* Hint Attempts (Hall of Shame) */}
-        {hintLeaderboard.length > 0 && (
-          <Leaderboard
-            title="Hall of Shame"
-            subtitle="Total hint button presses"
-            entries={hintLeaderboard}
-            formatValue={(v) => String(v)}
-            highlight="high-bad"
-          />
+        {playerStats.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-8">No games completed yet.</p>
         )}
       </div>
     </div>
   );
 }
 
-function Leaderboard({
-  title,
-  subtitle,
-  entries,
-  formatValue,
-  highlight,
-}: {
-  title: string;
-  subtitle: string;
-  entries: LeaderboardEntry[];
-  formatValue: (v: number) => string;
-  highlight: "low" | "high" | "high-bad";
-}) {
-  if (entries.length === 0) {
-    return (
-      <div className="space-y-2">
-        <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        <p className="text-sm text-muted-foreground py-3">No data yet</p>
-      </div>
-    );
-  }
+function PlayerStatCard({ player, isYou }: { player: PlayerRoomStats; isYou: boolean }) {
+  const maxDist = Math.max(...player.guessDistribution, 1);
 
   return (
-    <div className="space-y-2">
-      <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="text-xs text-muted-foreground">{subtitle}</p>
+    <div className={`rounded-lg border p-4 space-y-4 ${isYou ? "border-primary/30 bg-primary/5" : "bg-card"}`}>
+      {/* Player name */}
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-xs font-bold overflow-hidden shrink-0">
+          {player.avatarUrl ? (
+            <img src={player.avatarUrl} alt="" className="w-full h-full object-cover" />
+          ) : (
+            player.name.slice(0, 2).toUpperCase()
+          )}
+        </div>
+        <div className="min-w-0">
+          <h2 className="font-bold truncate">
+            {player.name} {isYou && <span className="text-xs text-muted-foreground font-normal">(you)</span>}
+          </h2>
+          {player.hintAttempts > 0 && (
+            <p className="text-xs text-yellow-500">{player.hintAttempts} hint attempt{player.hintAttempts !== 1 ? "s" : ""}</p>
+          )}
+        </div>
       </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-5 gap-1 text-center">
+        <div>
+          <p className="text-2xl font-bold">{player.played}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Played</p>
+        </div>
+        <div>
+          <p className="text-2xl font-bold">{player.winPct}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Win %</p>
+        </div>
+        <div>
+          <p className="text-2xl font-bold">{player.currentStreak}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Streak</p>
+        </div>
+        <div>
+          <p className="text-2xl font-bold">{player.maxStreak}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Max</p>
+        </div>
+        <div>
+          <p className="text-2xl font-bold text-green-500">{player.roundWins}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">1st Place</p>
+        </div>
+      </div>
+
+      {/* Guess distribution */}
       <div className="space-y-1">
-        {entries.map((entry, i) => {
-          const isFirst = i === 0 && entry.value !== entries[1]?.value;
-          return (
-            <div
-              key={entry.userId}
-              className={`flex items-center gap-3 p-2.5 rounded-lg ${
-                isFirst
-                  ? highlight === "high-bad"
-                    ? "bg-red-500/10 border border-red-500/20"
-                    : "bg-green-500/10 border border-green-500/20"
-                  : "border border-transparent"
-              }`}
-            >
-              <span className="text-sm font-mono w-6 text-muted-foreground text-right">
-                {i + 1}.
-              </span>
-              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold overflow-hidden">
-                {entry.avatarUrl ? (
-                  <img src={entry.avatarUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  entry.name.slice(0, 2).toUpperCase()
-                )}
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">Guess Distribution</p>
+        {player.guessDistribution.map((count, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-xs font-mono w-3 text-right text-muted-foreground">{i + 1}</span>
+            <div className="flex-1 h-5 flex items-center">
+              <div
+                className={`h-full rounded-sm flex items-center justify-end px-1.5 text-xs font-bold text-white ${
+                  count > 0 ? "bg-zinc-500" : "bg-zinc-700"
+                }`}
+                style={{ width: count > 0 ? `${Math.max((count / maxDist) * 100, 12)}%` : "24px" }}
+              >
+                {count}
               </div>
-              <span className="flex-1 text-sm font-medium truncate">
-                {entry.name}
-              </span>
-              <span className="text-sm font-mono font-bold">
-                {formatValue(entry.value)}
-              </span>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
+
+      {/* Average guesses */}
+      {player.avgGuesses > 0 && (
+        <p className="text-xs text-muted-foreground text-center">
+          Avg. guesses per win: <span className="font-mono font-bold text-foreground">{player.avgGuesses.toFixed(2)}</span>
+        </p>
+      )}
     </div>
   );
 }

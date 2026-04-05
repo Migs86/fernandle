@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Space_Mono } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -21,6 +21,13 @@ export const metadata: Metadata = {
     "Compete with friends on the same word. No waiting for tomorrow.",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -31,7 +38,7 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${spaceMono.variable} dark h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-sans">
+      <body className="h-dvh flex flex-col font-sans overflow-hidden">
         <SessionProvider>
           <TooltipProvider>{children}</TooltipProvider>
         </SessionProvider>
