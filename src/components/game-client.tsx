@@ -56,8 +56,16 @@ export function GameClient({
   const [readyCount, setReadyCount] = useState(0);
   const [readyPending, startReadyTransition] = useTransition();
   const [nudgeMessage, setNudgeMessage] = useState("");
+  const [notificationsGranted, setNotificationsGranted] = useState(true); // assume true until checked
 
   usePushSubscription();
+
+  // Check notification permission on mount
+  useEffect(() => {
+    if ("Notification" in window) {
+      setNotificationsGranted(Notification.permission === "granted");
+    }
+  }, []);
 
   const keyColors = buildKeyboardColors(guessResults);
   const finishedPlayers = players.filter((p) => p.status !== "playing");
@@ -256,7 +264,42 @@ export function GameClient({
         )}
 
         {/* === WAITING STATE (finished, others still playing) === */}
-        {isWaiting && (
+        {isWaiting && !notificationsGranted && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 p-4 text-center">
+            <div className="space-y-3 w-full max-w-xs">
+              <p className="text-lg font-semibold">Enable Notifications</p>
+              <p className="text-sm text-muted-foreground">
+                You need to enable notifications to continue. This lets other players nudge you when you&apos;re taking too long.
+              </p>
+              <Button
+                onClick={async () => {
+                  const permission = await Notification.requestPermission();
+                  if (permission === "granted") {
+                    setNotificationsGranted(true);
+                    if ("serviceWorker" in navigator) {
+                      const reg = await navigator.serviceWorker.ready;
+                      const sub = await reg.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+                      });
+                      const json = sub.toJSON();
+                      const { subscribePush } = await import("@/actions/push");
+                      await subscribePush({
+                        endpoint: sub.endpoint,
+                        keys: { p256dh: json.keys!.p256dh!, auth: json.keys!.auth! },
+                      });
+                    }
+                  }
+                }}
+                className="w-full h-12 text-base"
+              >
+                Enable Notifications
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {isWaiting && notificationsGranted && (
           <div className="flex-1 flex flex-col items-center justify-center gap-5 p-4 text-center">
             <div>
               {gameStatus === "won" ? (
@@ -402,8 +445,6 @@ export function GameClient({
         })()}
       </div>
 
-      {/* Notification permission banner */}
-      <NotificationBanner />
     </div>
   );
 }
@@ -437,52 +478,3 @@ function NudgeBtn({ roomId, targetUserId }: { roomId: string; targetUserId: stri
   );
 }
 
-function NotificationBanner() {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    if (!("Notification" in window)) return;
-    if (Notification.permission === "default") {
-      setShow(true);
-    }
-  }, []);
-
-  if (!show) return null;
-
-  const handleEnable = async () => {
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      setShow(false);
-      // Re-trigger the push subscription
-      if ("serviceWorker" in navigator) {
-        const reg = await navigator.serviceWorker.ready;
-        const sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
-        });
-        const json = sub.toJSON();
-        const { subscribePush } = await import("@/actions/push");
-        await subscribePush({
-          endpoint: sub.endpoint,
-          keys: { p256dh: json.keys!.p256dh!, auth: json.keys!.auth! },
-        });
-      }
-    } else {
-      setShow(false);
-    }
-  };
-
-  return (
-    <div className="shrink-0 px-3 py-2 bg-yellow-500/10 border-t border-yellow-500/20 flex items-center justify-between gap-3">
-      <p className="text-xs text-yellow-400">
-        Enable notifications so others can nudge you
-      </p>
-      <button
-        onClick={handleEnable}
-        className="text-xs font-bold text-yellow-500 hover:text-yellow-400 shrink-0 h-8 px-3 rounded-md bg-yellow-500/10"
-      >
-        Enable
-      </button>
-    </div>
-  );
-}
