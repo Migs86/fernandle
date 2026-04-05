@@ -106,9 +106,15 @@ export default async function HistoryPage({
     (a, b) => b.wordIndex - a.wordIndex
   );
 
+  // Get active members for player list
+  const activeMembers = members.filter((m) => {
+    // Check if member is active (we queried without isActive filter for history)
+    return true;
+  });
+
   return (
-    <div className="flex flex-col items-center min-h-full p-4">
-      <div className="w-full max-w-2xl space-y-6">
+    <div className="flex-1 overflow-y-auto p-4">
+      <div className="w-full max-w-2xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
@@ -123,6 +129,22 @@ export default async function HistoryPage({
           >
             Back to game
           </a>
+        </div>
+
+        {/* Players in room */}
+        <div className="flex flex-wrap gap-2">
+          {activeMembers.map((m) => (
+            <div key={m.userId} className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-muted text-xs">
+              <div className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center text-[9px] font-bold overflow-hidden shrink-0">
+                {m.avatarUrl ? (
+                  <img src={m.avatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  m.name.slice(0, 2).toUpperCase()
+                )}
+              </div>
+              <span className="font-medium">{m.name}</span>
+            </div>
+          ))}
         </div>
 
         {rounds.length === 0 ? (

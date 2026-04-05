@@ -194,7 +194,8 @@ export function GameClient({
         roomId={roomId}
         roomName={roomName}
         wordNumber={wordIndex}
-        playerCount={players.length}
+        players={players}
+        currentUserId={currentUserId}
         isAdmin={isAdmin}
       />
 
@@ -287,8 +288,8 @@ export function GameClient({
           </div>
         </div>
 
-        {/* Player sidebar — hidden on mobile, shown on desktop */}
-        <div className="hidden lg:block lg:w-64 lg:border-l lg:pl-4 py-4">
+        {/* Player sidebar — desktop only */}
+        <div className="hidden lg:block lg:w-56 lg:border-l lg:pl-4 py-4">
           <PlayerList players={players} currentUserId={currentUserId} />
         </div>
       </div>
