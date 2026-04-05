@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { rooms, roomMembers, games, guesses, users } from "@/lib/schema";
+import { rooms, roomMembers, games, guesses, users, roomEvents } from "@/lib/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { evaluateGuess } from "@/lib/game-logic";
 import type { LetterResult } from "@/types";
@@ -62,17 +62,25 @@ export default async function HistoryPage({
     .where(and(eq(games.roomId, roomId), sql`${games.status} != 'playing'`))
     .orderBy(desc(games.wordIndex));
 
-  // Get the answer for each past round from room_events
-  // We stored the answer in round_complete events
-  // But we can also reconstruct: for a won game, the last guess IS the answer
-  // For robustness, let's get answers from won games
+  // Get answers from round_complete events
+  const roundCompleteEvents = await db
+    .select({ payload: roomEvents.payload })
+    .from(roomEvents)
+    .where(and(eq(roomEvents.roomId, roomId), eq(roomEvents.eventType, "round_complete")));
+
+  const answersByWordIndex = new Map<number, string>();
+  for (const event of roundCompleteEvents) {
+    const p = event.payload as { wordIndex: number; answer?: string };
+    if (p.answer) answersByWordIndex.set(p.wordIndex, p.answer);
+  }
+
   const roundMap = new Map<number, RoundResult>();
 
   for (const game of allGames) {
     if (!roundMap.has(game.wordIndex)) {
       roundMap.set(game.wordIndex, {
         wordIndex: game.wordIndex,
-        answer: "",
+        answer: answersByWordIndex.get(game.wordIndex) || "",
         players: [],
       });
     }
@@ -89,8 +97,8 @@ export default async function HistoryPage({
 
     const guessWords = gameGuesses.map((g) => g.guess);
 
-    // If someone won, their last guess is the answer
-    if (game.status === "won" && guessWords.length > 0 && !round.answer) {
+    // Fallback: if no round_complete event, reconstruct from won game
+    if (!round.answer && game.status === "won" && guessWords.length > 0) {
       round.answer = guessWords[guessWords.length - 1];
     }
 
@@ -164,9 +172,17 @@ export default async function HistoryPage({
                     <span className="text-xs text-muted-foreground font-mono">
                       #{round.wordIndex + 1}
                     </span>
-                    <span className="text-lg font-bold font-mono uppercase tracking-wider">
-                      {round.answer || "???"}
-                    </span>
+                    {round.answer ? (
+                      <span className={`text-lg font-bold font-mono uppercase tracking-wider ${
+                        round.players.some((p) => p.status === "won") ? "text-green-500" : "text-foreground"
+                      }`}>
+                        {round.answer}
+                      </span>
+                    ) : (
+                      <span className="text-lg font-bold font-mono uppercase tracking-wider text-muted-foreground">
+                        ???
+                      </span>
+                    )}
                   </div>
                 </div>
 
