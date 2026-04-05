@@ -113,6 +113,20 @@ export const playerStats = pgTable("player_stats", {
   lastPlayedAt: timestamp("last_played_at", { withTimezone: true }),
 });
 
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+    endpoint: text("endpoint").notNull(),
+    keys: jsonb("keys").$type<{ p256dh: string; auth: string }>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [uniqueIndex("push_sub_endpoint_idx").on(table.endpoint)]
+);
+
 export const roomEvents = pgTable(
   "room_events",
   {

@@ -7,7 +7,9 @@ import { RoomHeader } from "./room-header";
 import { SkipVoteButton } from "./skip-vote-button";
 import { Button } from "@/components/ui/button";
 import { useRoomEvents } from "@/hooks/use-room-events";
+import { usePushSubscription } from "@/hooks/use-push-subscription";
 import { submitGuess, readyForNext } from "@/actions/game";
+import { nudgePlayer } from "@/actions/push";
 import { buildKeyboardColors } from "@/lib/game-logic";
 import { scoreRound } from "@/lib/scoring";
 import type { GuessResult, PlayerProgress, GameStatus, LetterResult } from "@/types";
@@ -53,6 +55,9 @@ export function GameClient({
   const [isReady, setIsReady] = useState(false);
   const [readyCount, setReadyCount] = useState(0);
   const [readyPending, startReadyTransition] = useTransition();
+  const [nudgeMessage, setNudgeMessage] = useState("");
+
+  usePushSubscription();
 
   const keyColors = buildKeyboardColors(guessResults);
   const finishedPlayers = players.filter((p) => p.status !== "playing");
@@ -137,6 +142,16 @@ export function GameClient({
     if (type === "skip_vote_update") {
       setSkipVoteCount((payload as { voteCount: number }).voteCount);
     }
+
+    if (type === "nudge") {
+      const targetId = (payload as { targetUserId: string }).targetUserId;
+      if (targetId === currentUserId) {
+        const fromName = (payload as { fromName: string }).fromName;
+        const msg = (payload as { message: string }).message;
+        setNudgeMessage(`${fromName}: ${msg}`);
+        setTimeout(() => setNudgeMessage(""), 5000);
+      }
+    }
   }, [resetForNewWord, currentUserId]));
 
   // Handle keyboard input
@@ -217,6 +232,11 @@ export function GameClient({
           <>
             <div className="shrink-0 py-1 sm:py-2 text-center">
               {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
+              {nudgeMessage && (
+                <p className="text-yellow-400 text-sm font-medium animate-in fade-in bg-yellow-500/10 rounded-lg px-3 py-2 mx-4">
+                  {nudgeMessage}
+                </p>
+              )}
             </div>
 
             <GameBoard
@@ -276,7 +296,12 @@ export function GameClient({
                       <span className="text-red-400 font-mono font-bold text-xs">X/6</span>
                     )}
                     {p.status === "playing" && (
-                      <span className="text-muted-foreground text-xs">playing...</span>
+                      <button
+                        onClick={() => nudgePlayer(roomId, p.userId)}
+                        className="text-xs text-yellow-500 hover:text-yellow-400 font-medium h-8 px-2 rounded-md hover:bg-yellow-500/10 transition-colors"
+                      >
+                        Nudge
+                      </button>
                     )}
                   </div>
                 ))}
