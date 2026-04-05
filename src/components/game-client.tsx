@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useTransition } from "react";
 import { GameBoard } from "./game-board";
 import { Keyboard } from "./keyboard";
 import { RoomHeader } from "./room-header";
 import { SkipVoteButton } from "./skip-vote-button";
 import { HintButton } from "./hint-button";
+import { Button } from "@/components/ui/button";
 import { useRoomEvents } from "@/hooks/use-room-events";
-import { submitGuess } from "@/actions/game";
+import { submitGuess, readyForNext } from "@/actions/game";
 import { buildKeyboardColors } from "@/lib/game-logic";
 import type { GuessResult, PlayerProgress, GameStatus, LetterResult } from "@/types";
 
@@ -48,15 +49,19 @@ export function GameClient({
   const [skipVoteCount, setSkipVoteCount] = useState(initialSkipVotes);
   const [hasVoted, setHasVoted] = useState(initialHasVoted);
   const [roundAnswer, setRoundAnswer] = useState(revealedWord || "");
-  const [showingAnswer, setShowingAnswer] = useState(false);
+  const [roundComplete, setRoundComplete] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [readyCount, setReadyCount] = useState(0);
   const [shameMessage, setShameMessage] = useState("");
+  const [readyPending, startReadyTransition] = useTransition();
 
   const keyColors = buildKeyboardColors(guessResults);
   const finishedPlayers = players.filter((p) => p.status !== "playing");
   const totalActive = players.length;
   const votesNeeded = Math.ceil(totalActive / 2);
   const isPlaying = gameStatus === "playing";
-  const isWaiting = !isPlaying && !showingAnswer;
+  // Waiting: finished but round not complete yet (others still playing)
+  const isWaiting = !isPlaying && !roundComplete;
 
   // Reset state when word rotates
   const resetForNewWord = useCallback((newWordIndex: number) => {
@@ -67,9 +72,18 @@ export function GameClient({
     setSkipVoteCount(0);
     setHasVoted(false);
     setRoundAnswer("");
-    setShowingAnswer(false);
+    setRoundComplete(false);
+    setIsReady(false);
+    setReadyCount(0);
     setError("");
   }, []);
+
+  const handleReady = () => {
+    setIsReady(true);
+    startReadyTransition(async () => {
+      await readyForNext(roomId);
+    });
+  };
 
   // Handle SSE events
   useRoomEvents(roomId, useCallback((event) => {
@@ -91,9 +105,13 @@ export function GameClient({
     }
 
     if (type === "round_complete") {
+      setRoundComplete(true);
       const answer = (payload as { answer?: string }).answer;
       if (answer) setRoundAnswer(answer);
-      setShowingAnswer(true);
+    }
+
+    if (type === "ready_update") {
+      setReadyCount((payload as { readyCount: number }).readyCount);
     }
 
     if (type === "hint_attempt") {
@@ -224,10 +242,9 @@ export function GameClient({
           </>
         )}
 
-        {/* === WAITING STATE (finished, waiting for others) === */}
+        {/* === WAITING STATE (finished, others still playing) === */}
         {isWaiting && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-6 p-4 text-center">
-            {/* Your result */}
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 p-4 text-center">
             <div>
               {gameStatus === "won" ? (
                 <p className="text-green-500 font-bold text-xl">
@@ -240,16 +257,14 @@ export function GameClient({
               )}
             </div>
 
-            {/* Progress */}
-            <div className="space-y-3 w-full max-w-xs">
+            <div className="space-y-2 w-full max-w-xs">
               <p className="text-lg font-semibold">
-                Waiting for Round #{wordIndex + 2} to start...
+                Waiting for round to finish...
               </p>
               <p className="text-muted-foreground">
                 {finishedPlayers.length}/{totalActive} have completed
               </p>
 
-              {/* Player completion status */}
               <div className="space-y-1.5">
                 {players.map((p) => (
                   <div key={p.userId} className="flex items-center gap-2 text-sm">
@@ -275,7 +290,6 @@ export function GameClient({
               </div>
             </div>
 
-            {/* Skip vote */}
             <SkipVoteButton
               roomId={roomId}
               hasVoted={hasVoted}
@@ -284,7 +298,6 @@ export function GameClient({
               votesNeeded={votesNeeded}
             />
 
-            {/* Links */}
             <div className="flex gap-4 text-sm">
               <a href={`/room/${roomId}/stats`} className="text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4">
                 Stats
@@ -296,15 +309,17 @@ export function GameClient({
           </div>
         )}
 
-        {/* === ANSWER REVEAL (brief, before new_word arrives) === */}
-        {showingAnswer && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 p-4 text-center">
-            <p className="text-sm text-muted-foreground uppercase tracking-wider">
+        {/* === ROUND COMPLETE — show answer, ready up for next === */}
+        {roundComplete && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 p-4 text-center">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">
               Round #{wordIndex + 1} complete
             </p>
             <p className="text-3xl font-bold font-mono uppercase tracking-widest">
               {roundAnswer}
             </p>
+
+            {/* Results */}
             <div className="space-y-1 w-full max-w-xs">
               {players.map((p) => (
                 <div key={p.userId} className="flex items-center justify-between text-sm px-2">
@@ -321,9 +336,30 @@ export function GameClient({
                 </div>
               ))}
             </div>
-            <p className="text-sm text-muted-foreground animate-pulse">
-              Next round starting...
-            </p>
+
+            {/* Ready up */}
+            <div className="space-y-2 w-full max-w-xs">
+              <Button
+                onClick={handleReady}
+                disabled={isReady || readyPending}
+                className="w-full"
+                size="lg"
+              >
+                {isReady ? "Waiting for others..." : "Next Game"}
+              </Button>
+              <p className="text-sm text-muted-foreground">
+                {readyCount}/{totalActive} ready
+              </p>
+            </div>
+
+            <div className="flex gap-4 text-sm">
+              <a href={`/room/${roomId}/stats`} className="text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4">
+                Stats
+              </a>
+              <a href={`/room/${roomId}/history`} className="text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4">
+                History
+              </a>
+            </div>
           </div>
         )}
       </div>

@@ -176,9 +176,6 @@ export async function voteSkip(roomId: string) {
       eventType: "round_complete",
       payload: { wordIndex: room.wordIndex, answer: room.currentWord, skipped: true },
     });
-
-    // Auto-rotate to next word
-    await rotateWord(roomId, room.wordIndex);
   }
 }
 
@@ -207,7 +204,7 @@ async function checkRoundComplete(roomId: string, wordIndex: number) {
     }
   }
 
-  // Everyone done — emit round complete then auto-rotate
+  // Everyone done — emit round complete (players must ready up to start next)
   const [room] = await db
     .select()
     .from(rooms)
@@ -219,9 +216,6 @@ async function checkRoundComplete(roomId: string, wordIndex: number) {
     eventType: "round_complete",
     payload: { wordIndex, answer: room?.currentWord },
   });
-
-  // Auto-rotate to next word
-  await rotateWord(roomId, wordIndex);
 }
 
 async function rotateWord(roomId: string, expectedWordIndex: number) {
@@ -266,6 +260,86 @@ async function rotateWord(roomId: string, expectedWordIndex: number) {
     eventType: "new_word",
     payload: { wordIndex: room.wordIndex },
   });
+}
+
+export async function readyForNext(roomId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Not authenticated");
+
+  const [room] = await db
+    .select()
+    .from(rooms)
+    .where(eq(rooms.id, roomId))
+    .limit(1);
+
+  if (!room) throw new Error("Room not found");
+
+  // Verify round is actually complete (no one playing)
+  const activeMembers = await db
+    .select({ userId: roomMembers.userId })
+    .from(roomMembers)
+    .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.isActive, true)));
+
+  const stillPlaying = [];
+  for (const member of activeMembers) {
+    const [game] = await db
+      .select()
+      .from(games)
+      .where(
+        and(
+          eq(games.roomId, roomId),
+          eq(games.userId, member.userId),
+          eq(games.wordIndex, room.wordIndex)
+        )
+      )
+      .limit(1);
+
+    if (game && game.status === "playing") {
+      stillPlaying.push(member.userId);
+    }
+  }
+
+  if (stillPlaying.length > 0) {
+    throw new Error("Not all players have finished");
+  }
+
+  // Emit player_ready event (idempotent — we'll count distinct)
+  await db.insert(roomEvents).values({
+    roomId,
+    eventType: "player_ready",
+    payload: { userId: session.user.id, wordIndex: room.wordIndex },
+  });
+
+  // Count distinct ready players for this wordIndex
+  const readyEvents = await db
+    .select({ payload: roomEvents.payload })
+    .from(roomEvents)
+    .where(
+      and(eq(roomEvents.roomId, roomId), eq(roomEvents.eventType, "player_ready"))
+    );
+
+  const readyUsers = new Set<string>();
+  for (const event of readyEvents) {
+    const p = event.payload as { userId: string; wordIndex: number };
+    if (p.wordIndex === room.wordIndex) {
+      readyUsers.add(p.userId);
+    }
+  }
+
+  const readyCount = readyUsers.size;
+  const totalMembers = activeMembers.length;
+
+  // Emit ready update so all clients see the count
+  await db.insert(roomEvents).values({
+    roomId,
+    eventType: "ready_update",
+    payload: { readyCount, totalMembers, wordIndex: room.wordIndex },
+  });
+
+  // If everyone is ready, rotate to next word
+  if (readyCount >= totalMembers) {
+    await rotateWord(roomId, room.wordIndex);
+  }
 }
 
 export async function requestHint(roomId: string): Promise<{ message: string }> {
