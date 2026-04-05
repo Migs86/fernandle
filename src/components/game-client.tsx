@@ -107,7 +107,21 @@ export function GameClient({
   useRoomEvents(roomId, useCallback((event) => {
     const { type, payload } = event;
 
-    if (type === "player_progress" || type === "player_finished") {
+    if (type === "player_progress") {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          if (p.userId === (payload as { userId: string }).userId && p.status === "playing") {
+            return {
+              ...p,
+              guessCount: (payload as { guessCount: number }).guessCount ?? p.guessCount,
+            };
+          }
+          return p;
+        })
+      );
+    }
+
+    if (type === "player_finished") {
       setPlayers((prev) =>
         prev.map((p) => {
           if (p.userId === (payload as { userId: string }).userId) {
