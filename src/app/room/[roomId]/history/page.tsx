@@ -212,71 +212,73 @@ export default async function HistoryPage({
                 })()}
 
                 {/* Player results */}
-                <div className="space-y-2">
+                <div className="flex flex-wrap gap-4">
                   {round.players
                     .sort((a, b) => {
-                      // Won before lost, then by guess count
                       if (a.status === "won" && b.status !== "won") return -1;
                       if (a.status !== "won" && b.status === "won") return 1;
                       return a.guessCount - b.guessCount;
                     })
-                    .map((player, i) => (
-                      <div key={i} className="flex items-center gap-3">
-                        <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold overflow-hidden shrink-0">
-                          {player.avatarUrl ? (
-                            <img src={player.avatarUrl} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            player.name.slice(0, 2).toUpperCase()
-                          )}
+                    .map((player, i) => {
+                      const isYou = player.userId === session.user!.id;
+                      return (
+                        <div key={i} className="space-y-1.5">
+                          {/* Player header */}
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[9px] font-bold overflow-hidden shrink-0">
+                              {player.avatarUrl ? (
+                                <img src={player.avatarUrl} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                player.name.slice(0, 2).toUpperCase()
+                              )}
+                            </div>
+                            <span className="text-xs font-medium truncate max-w-[80px]">
+                              {player.name}
+                            </span>
+                            <span
+                              className={`text-[10px] font-mono font-bold ${
+                                player.status === "won" ? "text-green-500" : "text-red-400"
+                              }`}
+                            >
+                              {player.status === "won" ? `${player.guessCount}/6` : "X/6"}
+                            </span>
+                          </div>
+                          {/* Guess grid — stacked vertically */}
+                          <div className="flex flex-col gap-[3px]">
+                            {player.guessWords.map((word, j) => {
+                              const results = round.answer ? evaluateGuess(word, round.answer) : [];
+                              return (
+                                <div key={j} className="flex gap-[3px]">
+                                  {word.split("").map((letter, k) => (
+                                    isYou ? (
+                                      <span
+                                        key={k}
+                                        className={`w-5 h-5 flex items-center justify-center text-[9px] font-bold uppercase rounded-[2px] ${
+                                          results[k] === "correct" ? "bg-green-600 text-white" :
+                                          results[k] === "present" ? "bg-yellow-500 text-white" :
+                                          "bg-zinc-600 text-zinc-300"
+                                        }`}
+                                      >
+                                        {letter}
+                                      </span>
+                                    ) : (
+                                      <span
+                                        key={k}
+                                        className={`w-5 h-5 rounded-[2px] ${
+                                          results[k] === "correct" ? "bg-green-600" :
+                                          results[k] === "present" ? "bg-yellow-500" :
+                                          "bg-zinc-600"
+                                        }`}
+                                      />
+                                    )
+                                  ))}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <span className="text-sm font-medium w-24 truncate">
-                          {player.name}
-                        </span>
-                        <span
-                          className={`text-xs font-mono font-bold w-8 ${
-                            player.status === "won" ? "text-green-500" : "text-red-400"
-                          }`}
-                        >
-                          {player.status === "won" ? `${player.guessCount}/6` : "X/6"}
-                        </span>
-                        {/* Guess trail: letters for you, colored blocks for others */}
-                        <div className="flex gap-1 flex-1 overflow-hidden flex-wrap">
-                          {player.guessWords.map((word, j) => {
-                            const results = round.answer ? evaluateGuess(word, round.answer) : [];
-                            const isYou = player.userId === session.user!.id;
-                            return isYou ? (
-                              <span key={j} className="font-mono text-[11px] uppercase tracking-wide">
-                                {word.split("").map((letter, k) => (
-                                  <span
-                                    key={k}
-                                    className={
-                                      results[k] === "correct" ? "text-green-500 font-bold" :
-                                      results[k] === "present" ? "text-yellow-500 font-bold" :
-                                      "text-zinc-500"
-                                    }
-                                  >
-                                    {letter}
-                                  </span>
-                                ))}
-                              </span>
-                            ) : (
-                              <span key={j} className="flex gap-[2px]">
-                                {results.map((r, k) => (
-                                  <span
-                                    key={k}
-                                    className={`inline-block w-2.5 h-2.5 rounded-[2px] ${
-                                      r === "correct" ? "bg-green-500" :
-                                      r === "present" ? "bg-yellow-500" :
-                                      "bg-zinc-600"
-                                    }`}
-                                  />
-                                ))}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                 </div>
               </div>
             ))}
