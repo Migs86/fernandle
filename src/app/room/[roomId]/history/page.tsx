@@ -10,6 +10,7 @@ type RoundResult = {
   wordIndex: number;
   answer: string;
   players: {
+    userId: string;
     name: string;
     avatarUrl: string | null;
     status: string;
@@ -103,6 +104,7 @@ export default async function HistoryPage({
     }
 
     round.players.push({
+      userId: game.userId,
       name: member?.name || "Unknown",
       avatarUrl: member?.avatarUrl || null,
       status: game.status,
@@ -237,11 +239,12 @@ export default async function HistoryPage({
                         >
                           {player.status === "won" ? `${player.guessCount}/6` : "X/6"}
                         </span>
-                        {/* Mini guess trail with colored letters */}
-                        <div className="flex gap-1.5 flex-1 overflow-hidden flex-wrap">
+                        {/* Guess trail: letters for you, colored blocks for others */}
+                        <div className="flex gap-1 flex-1 overflow-hidden flex-wrap">
                           {player.guessWords.map((word, j) => {
                             const results = round.answer ? evaluateGuess(word, round.answer) : [];
-                            return (
+                            const isYou = player.userId === session.user!.id;
+                            return isYou ? (
                               <span key={j} className="font-mono text-[11px] uppercase tracking-wide">
                                 {word.split("").map((letter, k) => (
                                   <span
@@ -254,6 +257,19 @@ export default async function HistoryPage({
                                   >
                                     {letter}
                                   </span>
+                                ))}
+                              </span>
+                            ) : (
+                              <span key={j} className="flex gap-[2px]">
+                                {results.map((r, k) => (
+                                  <span
+                                    key={k}
+                                    className={`inline-block w-2.5 h-2.5 rounded-[2px] ${
+                                      r === "correct" ? "bg-green-500" :
+                                      r === "present" ? "bg-yellow-500" :
+                                      "bg-zinc-600"
+                                    }`}
+                                  />
                                 ))}
                               </span>
                             );
