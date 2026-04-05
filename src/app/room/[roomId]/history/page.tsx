@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { rooms, roomMembers, games, guesses, users } from "@/lib/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
+import { evaluateGuess } from "@/lib/game-logic";
+import type { LetterResult } from "@/types";
 
 type RoundResult = {
   wordIndex: number;
@@ -196,16 +198,27 @@ export default async function HistoryPage({
                         >
                           {player.status === "won" ? `${player.guessCount}/6` : "X/6"}
                         </span>
-                        {/* Mini guess trail */}
-                        <div className="flex gap-1 flex-1 overflow-hidden">
-                          {player.guessWords.map((word, j) => (
-                            <span
-                              key={j}
-                              className="text-[10px] font-mono text-muted-foreground uppercase"
-                            >
-                              {word}
-                            </span>
-                          ))}
+                        {/* Mini guess trail with colored letters */}
+                        <div className="flex gap-1.5 flex-1 overflow-hidden flex-wrap">
+                          {player.guessWords.map((word, j) => {
+                            const results = round.answer ? evaluateGuess(word, round.answer) : [];
+                            return (
+                              <span key={j} className="font-mono text-[11px] uppercase tracking-wide">
+                                {word.split("").map((letter, k) => (
+                                  <span
+                                    key={k}
+                                    className={
+                                      results[k] === "correct" ? "text-green-500 font-bold" :
+                                      results[k] === "present" ? "text-yellow-500 font-bold" :
+                                      "text-zinc-500"
+                                    }
+                                  >
+                                    {letter}
+                                  </span>
+                                ))}
+                              </span>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}

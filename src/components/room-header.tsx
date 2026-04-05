@@ -128,18 +128,17 @@ export function RoomHeader({ roomId, roomName, wordNumber, players, currentUserI
             </div>
 
             {/* Actions */}
-            <div className="border-t px-4 py-3 space-y-2">
+            <div className="border-t px-4 py-3 space-y-3">
               <div className="flex gap-2">
                 <a href={`/room/${roomId}/stats`} className="flex-1">
-                  <Button variant="outline" size="sm" className="w-full text-xs">Stats</Button>
+                  <Button variant="outline" className="w-full h-10 text-sm">Stats</Button>
                 </a>
                 <a href={`/room/${roomId}/history`} className="flex-1">
-                  <Button variant="outline" size="sm" className="w-full text-xs">History</Button>
+                  <Button variant="outline" className="w-full h-10 text-sm">History</Button>
                 </a>
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="flex-1 text-xs"
+                  className="flex-1 h-10 text-sm"
                   onClick={handleCopy}
                 >
                   {copied ? "Copied!" : "Invite"}
@@ -148,8 +147,7 @@ export function RoomHeader({ roomId, roomName, wordNumber, players, currentUserI
               {isAdmin && (
                 <Button
                   variant="destructive"
-                  size="sm"
-                  className="w-full text-xs"
+                  className="w-full h-10 text-sm mt-2"
                   disabled={deleting}
                   onClick={() => {
                     if (confirm("Delete this room? This cannot be undone.")) {

@@ -31,15 +31,14 @@ export function SkipVoteButton({
     <div className="flex items-center gap-3">
       <Button
         variant="outline"
-        size="sm"
         onClick={handleVote}
         disabled={hasVoted || isPending}
-        className="text-xs"
+        className="h-10 text-sm"
       >
-        {hasVoted ? "Voted to skip" : "Vote to skip"}
+        {hasVoted ? "Voted to skip" : "Skip to next game"}
       </Button>
-      <span className="text-xs text-muted-foreground">
-        {voteCount}/{votesNeeded} needed ({totalPlayers} players)
+      <span className="text-sm text-muted-foreground">
+        {voteCount}/{votesNeeded} needed
       </span>
     </div>
   );
