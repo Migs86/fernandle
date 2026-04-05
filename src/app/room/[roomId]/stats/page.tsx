@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { rooms, roomMembers, games, guesses, users } from "@/lib/schema";
 import { eq, and, sql } from "drizzle-orm";
+import { scoreRound } from "@/lib/scoring";
 
 type PlayerRoomStats = {
   userId: string;
@@ -15,8 +16,10 @@ type PlayerRoomStats = {
   maxStreak: number;
   avgGuesses: number;
   guessDistribution: number[];
-  hintAttempts: number;
   roundWins: number;
+  totalPoints: number;
+  bestRound: number;
+  multiplierCount: number; // rounds with 2x or 3x
 };
 
 export default async function RoomStatsPage({
@@ -49,14 +52,13 @@ export default async function RoomStatsPage({
     .innerJoin(users, eq(roomMembers.userId, users.id))
     .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.isActive, true)));
 
-  // Get all completed games for this room, ordered by wordIndex for streak calculation
+  // Get all completed games for this room
   const allGames = await db
     .select({
       userId: games.userId,
       wordIndex: games.wordIndex,
       status: games.status,
       gameId: games.id,
-      hintAttempts: games.hintAttempts,
     })
     .from(games)
     .where(and(eq(games.roomId, roomId), sql`${games.status} != 'playing'`));
@@ -71,22 +73,48 @@ export default async function RoomStatsPage({
     gameGuessCount[game.gameId] = result.count;
   }
 
-  // Group games by wordIndex for round-win calculation
-  const roundMap = new Map<number, { userId: string; status: string; guessCount: number }[]>();
+  // Group games by wordIndex
+  const roundMap = new Map<number, { userId: string; status: string; guessCount: number; gameId: string }[]>();
   for (const game of allGames) {
     const entries = roundMap.get(game.wordIndex) || [];
     entries.push({
       userId: game.userId,
       status: game.status,
       guessCount: gameGuessCount[game.gameId] || 0,
+      gameId: game.gameId,
     });
     roundMap.set(game.wordIndex, entries);
   }
 
-  // Count round wins per player (best result, no ties)
+  // Calculate points per player across all rounds
+  const pointTotals: Record<string, number> = {};
+  const bestRounds: Record<string, number> = {};
+  const multiplierCounts: Record<string, number> = {};
   const roundWinCounts: Record<string, number> = {};
-  for (const member of members) roundWinCounts[member.userId] = 0;
+  for (const member of members) {
+    pointTotals[member.userId] = 0;
+    bestRounds[member.userId] = 0;
+    multiplierCounts[member.userId] = 0;
+    roundWinCounts[member.userId] = 0;
+  }
+
   for (const [, entries] of roundMap) {
+    const roundScores = scoreRound(
+      entries.map((e) => ({
+        userId: e.userId,
+        status: e.status as "won" | "lost" | "playing",
+        guessCount: e.guessCount,
+      }))
+    );
+
+    for (const [userId, score] of roundScores) {
+      if (!(userId in pointTotals)) continue;
+      pointTotals[userId] += score.points;
+      bestRounds[userId] = Math.max(bestRounds[userId], score.points);
+      if (score.multiplier >= 2) multiplierCounts[userId]++;
+    }
+
+    // Round wins (sole best)
     const winners = entries.filter((e) => e.status === "won");
     if (winners.length > 0) {
       const best = Math.min(...winners.map((w) => w.guessCount));
@@ -107,7 +135,6 @@ export default async function RoomStatsPage({
     const won = playerGames.filter((g) => g.status === "won").length;
     const winPct = played > 0 ? Math.round((won / played) * 100) : 0;
 
-    // Streaks (based on wordIndex order within this room)
     let currentStreak = 0;
     let maxStreak = 0;
     let streak = 0;
@@ -121,12 +148,10 @@ export default async function RoomStatsPage({
     }
     currentStreak = streak;
 
-    // Average guesses (wins only)
     const wins = playerGames.filter((g) => g.status === "won");
     const totalGuesses = wins.reduce((sum, g) => sum + (gameGuessCount[g.gameId] || 0), 0);
     const avgGuesses = wins.length > 0 ? Math.round((totalGuesses / wins.length) * 100) / 100 : 0;
 
-    // Guess distribution
     const guessDistribution = [0, 0, 0, 0, 0, 0];
     for (const g of wins) {
       const count = gameGuessCount[g.gameId] || 0;
@@ -134,9 +159,6 @@ export default async function RoomStatsPage({
         guessDistribution[count - 1]++;
       }
     }
-
-    // Hint attempts
-    const hintAttempts = playerGames.reduce((sum, g) => sum + (g.hintAttempts || 0), 0);
 
     return {
       userId: member.userId,
@@ -149,15 +171,21 @@ export default async function RoomStatsPage({
       maxStreak,
       avgGuesses,
       guessDistribution,
-      hintAttempts,
       roundWins: roundWinCounts[member.userId] || 0,
+      totalPoints: pointTotals[member.userId] || 0,
+      bestRound: bestRounds[member.userId] || 0,
+      multiplierCount: multiplierCounts[member.userId] || 0,
     };
   });
 
-  // Sort by round wins desc, then win% desc
-  playerStats.sort((a, b) => b.roundWins - a.roundWins || b.winPct - a.winPct);
+  // Sort leaderboard by points
+  const leaderboard = [...playerStats].sort((a, b) => b.totalPoints - a.totalPoints);
+
+  // Sort stat cards by points too
+  playerStats.sort((a, b) => b.totalPoints - a.totalPoints);
 
   const totalRounds = roundMap.size;
+  const topScore = leaderboard[0]?.totalPoints || 0;
 
   return (
     <div className="flex-1 overflow-y-auto p-4">
@@ -178,6 +206,58 @@ export default async function RoomStatsPage({
           </a>
         </div>
 
+        {/* Points Leaderboard */}
+        {leaderboard.length > 0 && (
+          <div className="rounded-lg border bg-card p-4 space-y-3">
+            <h2 className="font-bold text-lg">Leaderboard</h2>
+            <div className="space-y-2">
+              {leaderboard.map((player, i) => {
+                const barWidth = topScore > 0 ? (player.totalPoints / topScore) * 100 : 0;
+                const isYou = player.userId === session.user!.id;
+                const medal = i === 0 && player.totalPoints > 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "";
+                return (
+                  <div key={player.userId} className={`rounded-lg p-2.5 ${isYou ? "bg-primary/10" : ""}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm w-5 text-center">{medal || `${i + 1}.`}</span>
+                      <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold overflow-hidden shrink-0">
+                        {player.avatarUrl ? (
+                          <img src={player.avatarUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          player.name.slice(0, 2).toUpperCase()
+                        )}
+                      </div>
+                      <span className="text-sm font-medium flex-1 truncate">
+                        {player.name}
+                        {isYou && <span className="text-muted-foreground font-normal"> (you)</span>}
+                      </span>
+                      <span className="text-lg font-bold font-mono">{player.totalPoints}</span>
+                      <span className="text-[10px] text-muted-foreground">pts</span>
+                    </div>
+                    {/* Points bar */}
+                    <div className="ml-14 h-2 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-green-500 transition-all"
+                        style={{ width: `${Math.max(barWidth, 2)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Scoring legend */}
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer hover:text-foreground transition-colors">How scoring works</summary>
+              <div className="mt-2 space-y-1 pl-2 border-l-2 border-muted">
+                <p>Base: 1 guess = 50, 2 = 35, 3 = 25, 4 = 20, 5 = 15, 6 = 10</p>
+                <p>Only solver in round: <span className="text-yellow-500 font-bold">3x</span></p>
+                <p>Best score (sole): <span className="text-green-500 font-bold">2x</span></p>
+                <p>Tied for best: <span className="text-blue-400 font-bold">1.5x</span></p>
+              </div>
+            </details>
+          </div>
+        )}
+
         {/* Per-player stat cards */}
         {playerStats.map((player) => (
           <PlayerStatCard key={player.userId} player={player} isYou={player.userId === session.user!.id} />
@@ -196,7 +276,7 @@ function PlayerStatCard({ player, isYou }: { player: PlayerRoomStats; isYou: boo
 
   return (
     <div className={`rounded-lg border p-4 space-y-4 ${isYou ? "border-primary/30 bg-primary/5" : "bg-card"}`}>
-      {/* Player name */}
+      {/* Player name + points */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-xs font-bold overflow-hidden shrink-0">
           {player.avatarUrl ? (
@@ -205,13 +285,14 @@ function PlayerStatCard({ player, isYou }: { player: PlayerRoomStats; isYou: boo
             player.name.slice(0, 2).toUpperCase()
           )}
         </div>
-        <div className="min-w-0">
+        <div className="flex-1 min-w-0">
           <h2 className="font-bold truncate">
             {player.name} {isYou && <span className="text-xs text-muted-foreground font-normal">(you)</span>}
           </h2>
-          {player.hintAttempts > 0 && (
-            <p className="text-xs text-yellow-500">{player.hintAttempts} hint attempt{player.hintAttempts !== 1 ? "s" : ""}</p>
-          )}
+        </div>
+        <div className="text-right shrink-0">
+          <p className="text-xl font-bold font-mono">{player.totalPoints}</p>
+          <p className="text-[10px] text-muted-foreground">points</p>
         </div>
       </div>
 
@@ -230,12 +311,12 @@ function PlayerStatCard({ player, isYou }: { player: PlayerRoomStats; isYou: boo
           <p className="text-[10px] text-muted-foreground uppercase">Streak</p>
         </div>
         <div>
-          <p className="text-2xl font-bold">{player.maxStreak}</p>
-          <p className="text-[10px] text-muted-foreground uppercase">Max</p>
+          <p className="text-2xl font-bold">{player.bestRound}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Best Rnd</p>
         </div>
         <div>
-          <p className="text-2xl font-bold text-green-500">{player.roundWins}</p>
-          <p className="text-[10px] text-muted-foreground uppercase">1st Place</p>
+          <p className="text-2xl font-bold text-yellow-500">{player.multiplierCount}</p>
+          <p className="text-[10px] text-muted-foreground uppercase">Bonuses</p>
         </div>
       </div>
 

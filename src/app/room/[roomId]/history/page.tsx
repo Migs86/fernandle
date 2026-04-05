@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { rooms, roomMembers, games, guesses, users, roomEvents } from "@/lib/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { evaluateGuess } from "@/lib/game-logic";
+import { scoreRound, type PlayerScore } from "@/lib/scoring";
 import type { LetterResult } from "@/types";
 
 type RoundResult = {
@@ -16,6 +17,7 @@ type RoundResult = {
     status: string;
     guessCount: number;
     guessWords: string[];
+    score?: PlayerScore;
   }[];
 };
 
@@ -111,6 +113,20 @@ export default async function HistoryPage({
       guessCount: guessWords.length,
       guessWords,
     });
+  }
+
+  // Calculate scores for each round
+  for (const [, round] of roundMap) {
+    const scores = scoreRound(
+      round.players.map((p) => ({
+        userId: p.userId,
+        status: p.status as "won" | "lost" | "playing",
+        guessCount: p.guessCount,
+      }))
+    );
+    for (const player of round.players) {
+      player.score = scores.get(player.userId);
+    }
   }
 
   // Sort rounds by wordIndex descending (most recent first)
@@ -242,6 +258,16 @@ export default async function HistoryPage({
                             >
                               {player.status === "won" ? `${player.guessCount}/6` : "X/6"}
                             </span>
+                            {player.score && player.score.points > 0 && (
+                              <span className="text-[10px] font-mono font-bold text-yellow-500">
+                                +{player.score.points}
+                                {player.score.multiplierReason && (
+                                  <span className="text-[9px] text-yellow-500/70 ml-0.5">
+                                    {player.score.multiplier}x
+                                  </span>
+                                )}
+                              </span>
+                            )}
                           </div>
                           {/* Guess grid — stacked vertically */}
                           <div className="flex flex-col gap-[3px]">

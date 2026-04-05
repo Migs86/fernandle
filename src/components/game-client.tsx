@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useRoomEvents } from "@/hooks/use-room-events";
 import { submitGuess, readyForNext } from "@/actions/game";
 import { buildKeyboardColors } from "@/lib/game-logic";
+import { scoreRound } from "@/lib/scoring";
 import type { GuessResult, PlayerProgress, GameStatus, LetterResult } from "@/types";
 
 type GameClientProps = {
@@ -302,7 +303,16 @@ export function GameClient({
         )}
 
         {/* === ROUND COMPLETE — show answer, ready up for next === */}
-        {roundComplete && (
+        {roundComplete && (() => {
+          const roundScores = scoreRound(
+            players.map((p) => ({
+              userId: p.userId,
+              status: p.status as "won" | "lost" | "playing",
+              guessCount: p.guessCount,
+            }))
+          );
+
+          return (
           <div className="flex-1 flex flex-col items-center justify-center gap-5 p-4 text-center">
             <p className="text-xs text-muted-foreground uppercase tracking-wider">
               Round #{wordIndex + 1} complete
@@ -311,22 +321,37 @@ export function GameClient({
               {roundAnswer}
             </p>
 
-            {/* Results */}
-            <div className="space-y-1 w-full max-w-xs">
-              {players.map((p) => (
-                <div key={p.userId} className="flex items-center justify-between text-sm px-2">
-                  <span className={p.userId === currentUserId ? "font-bold" : ""}>
-                    {p.name}
-                  </span>
-                  <span className={
-                    p.status === "won"
-                      ? "text-green-500 font-mono font-bold"
-                      : "text-red-400 font-mono"
-                  }>
-                    {p.status === "won" ? `${p.guessCount}/6` : "X/6"}
-                  </span>
-                </div>
-              ))}
+            {/* Results with scores */}
+            <div className="space-y-1.5 w-full max-w-xs">
+              {[...players]
+                .sort((a, b) => (roundScores.get(b.userId)?.points || 0) - (roundScores.get(a.userId)?.points || 0))
+                .map((p) => {
+                  const score = roundScores.get(p.userId);
+                  return (
+                    <div key={p.userId} className="flex items-center gap-2 text-sm px-2">
+                      <span className={`flex-1 text-left truncate ${p.userId === currentUserId ? "font-bold" : ""}`}>
+                        {p.name}
+                      </span>
+                      <span className={
+                        p.status === "won"
+                          ? "text-green-500 font-mono font-bold text-xs"
+                          : "text-red-400 font-mono text-xs"
+                      }>
+                        {p.status === "won" ? `${p.guessCount}/6` : "X/6"}
+                      </span>
+                      {score && score.points > 0 ? (
+                        <span className="text-yellow-500 font-mono font-bold text-sm w-16 text-right">
+                          +{score.points}
+                          {score.multiplierReason && (
+                            <span className="text-[10px] text-yellow-500/70 ml-0.5">{score.multiplier}x</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground font-mono text-sm w-16 text-right">+0</span>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
 
             {/* Ready up */}
@@ -353,7 +378,8 @@ export function GameClient({
               </a>
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
