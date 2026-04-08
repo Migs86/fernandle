@@ -74,6 +74,8 @@ export function GameClient({
   const isPlaying = gameStatus === "playing";
   // Waiting: finished but round not complete yet (others still playing)
   const isWaiting = !isPlaying && !roundComplete;
+  // Threshold to start next game: 1 when all done, min(3, total) when some still playing
+  const nextGameNeeded = roundComplete ? 1 : Math.min(3, totalActive);
 
   // Reset state when word rotates
   const resetForNewWord = useCallback((newWordIndex: number) => {
@@ -108,6 +110,8 @@ export function GameClient({
     const { type, payload } = event;
 
     if (type === "player_progress") {
+      const eventWordIndex = (payload as { wordIndex?: number }).wordIndex;
+      if (eventWordIndex !== undefined && eventWordIndex !== wordIndexRef.current) return;
       setPlayers((prev) =>
         prev.map((p) => {
           if (p.userId === (payload as { userId: string }).userId && p.status === "playing") {
@@ -122,6 +126,8 @@ export function GameClient({
     }
 
     if (type === "player_finished") {
+      const eventWordIndex = (payload as { wordIndex?: number }).wordIndex;
+      if (eventWordIndex !== undefined && eventWordIndex !== wordIndexRef.current) return;
       setPlayers((prev) =>
         prev.map((p) => {
           if (p.userId === (payload as { userId: string }).userId) {
@@ -372,6 +378,25 @@ export function GameClient({
               </div>
             </div>
 
+            {/* Early next-game vote */}
+            <div className="space-y-1.5 w-full max-w-xs">
+              <Button
+                onClick={handleReady}
+                disabled={isReady || readyPending}
+                variant="outline"
+                className="w-full"
+              >
+                {isReady
+                  ? `${readyCount}/${nextGameNeeded} ready...`
+                  : "Next Game"}
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                {nextGameNeeded === 1
+                  ? "Click to start immediately"
+                  : `${readyCount}/${nextGameNeeded} needed to skip ahead`}
+              </p>
+            </div>
+
             <SkipVoteButton
               roomId={roomId}
               hasVoted={hasVoted}
@@ -451,10 +476,10 @@ export function GameClient({
                 className="w-full"
                 size="lg"
               >
-                {isReady ? "Waiting for others..." : "Next Game"}
+                {isReady ? "Starting..." : "Next Game"}
               </Button>
               <p className="text-sm text-muted-foreground">
-                {readyCount}/{Math.ceil(totalActive / 2)} needed to start
+                Click to start immediately
               </p>
             </div>
 

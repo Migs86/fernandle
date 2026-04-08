@@ -92,6 +92,7 @@ export async function submitGuess(
         userId: session.user.id,
         status,
         guessCount: position,
+        wordIndex: room.wordIndex,
       },
     });
 
@@ -105,6 +106,7 @@ export async function submitGuess(
       payload: {
         userId: session.user.id,
         guessCount: position,
+        wordIndex: room.wordIndex,
       },
     });
   }
@@ -274,7 +276,6 @@ export async function readyForNext(roomId: string) {
 
   if (!room) throw new Error("Room not found");
 
-  // Verify round is actually complete (no one playing)
   const activeMembers = await db
     .select({ userId: roomMembers.userId })
     .from(roomMembers)
@@ -297,10 +298,6 @@ export async function readyForNext(roomId: string) {
     if (game && game.status === "playing") {
       stillPlaying.push(member.userId);
     }
-  }
-
-  if (stillPlaying.length > 0) {
-    throw new Error("Not all players have finished");
   }
 
   // Emit player_ready event (idempotent — we'll count distinct)
@@ -329,7 +326,9 @@ export async function readyForNext(roomId: string) {
   const readyCount = readyUsers.size;
   const totalMembers = activeMembers.length;
 
-  const needed = Math.ceil(totalMembers / 2);
+  // All done → anyone clicking starts immediately (needed = 1)
+  // Some still playing → min(3, total) needed so a small group can move on
+  const needed = stillPlaying.length === 0 ? 1 : Math.min(3, totalMembers);
 
   // Emit ready update so all clients see the count
   await db.insert(roomEvents).values({
@@ -338,8 +337,21 @@ export async function readyForNext(roomId: string) {
     payload: { readyCount, needed, totalMembers, wordIndex: room.wordIndex },
   });
 
-  // If majority is ready, rotate to next word
+  // If threshold reached, rotate to next word
   if (readyCount >= needed) {
+    // Mark any still-playing games as lost before rotating
+    if (stillPlaying.length > 0) {
+      await db
+        .update(games)
+        .set({ status: "lost", completedAt: new Date() })
+        .where(
+          and(
+            eq(games.roomId, roomId),
+            eq(games.wordIndex, room.wordIndex),
+            eq(games.status, "playing")
+          )
+        );
+    }
     await rotateWord(roomId, room.wordIndex);
   }
 }
